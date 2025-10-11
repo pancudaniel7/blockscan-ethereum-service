@@ -2,8 +2,8 @@ package applogger
 
 import "log/slog"
 
-// AppLogger defines the logging interface for the application.
-type AppLogger interface {
+// Logger defines the logging interface for the application.
+type Logger interface {
 	Info(msg string, args ...any)
 	Error(msg string, args ...any)
 	Warn(msg string, args ...any)
