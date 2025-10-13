@@ -1,0 +1,21 @@
+services:
+  redis:
+    container_name: redis
+    image: redis:7.2.4
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD-SHELL","redis-cli ping | grep PONG"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  redis-provisioner:
+    container_name: redis-provisioner
+    image: redis:7.2.4
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./redis/functions/add_block.lua:/add_block.lua:ro
+      - ./redis/load_functions.sh:/load_functions.sh:ro
+    entrypoint: ["sh","-c","sh /load_functions.sh /add_block.lua"]

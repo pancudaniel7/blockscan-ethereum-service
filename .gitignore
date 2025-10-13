@@ -37,9 +37,9 @@ __debug_bin
 *.sqlite3
 
 # Configuration files (uncomment if you want to ignore them)
-# config.json
-# config.yaml
-# config.yml
+# configs.json
+# configs.yaml
+# configs.yml
 
 # Docker
 .dockerignore
