@@ -95,23 +95,3 @@ func AckAndDeleteMessage(rdb *redis.Client, ctx context.Context, streamKey, cons
 
 	return nil
 }
-
-func DeleteSetKey(rdb *redis.Client, ctx context.Context, key string) error {
-	return rdb.Del(ctx, key).Err()
-}
-
-func AckDeleteMessageAndSetKey(rdb *redis.Client, ctx context.Context, streamKey, consumerGroup, messageID, setKey string) error {
-	if _, err := XAck(rdb, ctx, streamKey, consumerGroup, messageID); err != nil {
-		return fmt.Errorf("failed to acknowledge message: %w", err)
-	}
-
-	if _, err := XDel(rdb, ctx, streamKey, messageID); err != nil {
-		return fmt.Errorf("failed to delete message: %w", err)
-	}
-
-	if err := DeleteSetKey(rdb, ctx, setKey); err != nil {
-		return fmt.Errorf("failed to delete SET key: %w", err)
-	}
-
-	return nil
-}
