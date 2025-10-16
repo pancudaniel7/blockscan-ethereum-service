@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/infra"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applogger"
 )
 
@@ -10,4 +11,6 @@ var (
 
 func main() {
 	logger = applogger.NewAppDefaultLogger()
+	infra.LoadConfig()
+
 }
