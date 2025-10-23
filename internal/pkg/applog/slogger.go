@@ -4,6 +4,9 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
+
+	"github.com/spf13/viper"
 )
 
 // DefaultLogger wraps slog.Logger and implements AppLogger.
@@ -13,8 +16,10 @@ type DefaultLogger struct {
 
 // NewAppDefaultLogger creates a new DefaultLogger with default options.
 func NewAppDefaultLogger() *DefaultLogger {
+	levelStr := viper.GetString("log.level")
+	level := parseLogLevel(levelStr)
 	return &DefaultLogger{
-		logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})),
+		logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})),
 	}
 }
 
@@ -41,4 +46,22 @@ func (l *DefaultLogger) Trace(msg string, args ...any) {
 func (l *DefaultLogger) Fatal(msg string, args ...any) {
 	l.logger.Error(msg, args...)
 	os.Exit(1)
+}
+
+func parseLogLevel(s string) slog.Level {
+	s = strings.TrimSpace(strings.ToLower(s))
+	switch s {
+	case "trace":
+		return slog.Level(-8)
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	case "info", "":
+		return slog.LevelInfo
+	default:
+		return slog.LevelInfo
+	}
 }

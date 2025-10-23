@@ -47,3 +47,4 @@ __debug_bin
 # Temporary files
 *.tmp
 *.temp
+__debug*

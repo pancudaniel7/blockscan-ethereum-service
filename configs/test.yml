@@ -2,6 +2,9 @@ server:
   port: 8080
   host: localhost
 
+log:
+  level: trace
+
 redis:
   host: localhost
   port: 6379
