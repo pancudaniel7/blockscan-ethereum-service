@@ -1,4 +1,4 @@
-package apperror
+package apperr
 
 // BaseError defines the interface for application-specific errors.
 type BaseError interface {
