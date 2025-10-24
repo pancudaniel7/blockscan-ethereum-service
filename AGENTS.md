@@ -6,6 +6,7 @@
 - `configs/*.yml` stores environment presets consumed via Viper; extend with additional files instead of inlining constants.
 - `deployments/` holds operational assets (`docker-compose.yml`, Redis function loader) used for local provisioning.
 - `docs/` provides architecture references, and `test/` houses integration helpers targeting Redis Lua functions.
+- `test/` houses unit and integration tests.
 
 ## Build, Test, and Development Commands
 - `go fmt ./... && go test ./...` keeps code formatted and verifies unit and integration suites.
