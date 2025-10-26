@@ -81,3 +81,51 @@ func (e *InternalErr) Code() string      { return "INTERNAL_ERROR" }
 func (e *InternalErr) Message() string   { return e.Msg }
 func (e *InternalErr) CauseError() error { return e.Cause }
 func (e *InternalErr) Unwrap() error     { return e.Cause }
+
+type BlockScanErr struct {
+	Msg   string
+	Cause error
+}
+
+func (e *BlockScanErr) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("[BLOCKSCAN_ERROR] %s: %v", e.Msg, e.Cause)
+	}
+	return "[BLOCKSCAN_ERROR] " + e.Msg
+}
+func (e *BlockScanErr) Code() string      { return "BLOCKSCAN_ERROR" }
+func (e *BlockScanErr) Message() string   { return e.Msg }
+func (e *BlockScanErr) CauseError() error { return e.Cause }
+func (e *BlockScanErr) Unwrap() error     { return e.Cause }
+
+type BlockLockErr struct {
+	Msg   string
+	Cause error
+}
+
+func (e *BlockLockErr) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("[BLOCKLOCK_ERROR] %s: %v", e.Msg, e.Cause)
+	}
+	return "[BLOCKLOCK_ERROR] " + e.Msg
+}
+func (e *BlockLockErr) Code() string      { return "BLOCKLOCK_ERROR" }
+func (e *BlockLockErr) Message() string   { return e.Msg }
+func (e *BlockLockErr) CauseError() error { return e.Cause }
+func (e *BlockLockErr) Unwrap() error     { return e.Cause }
+
+type BlockStreamErr struct {
+	Msg   string
+	Cause error
+}
+
+func (e *BlockStreamErr) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("[BLOCKSTREAM_ERROR] %s: %v", e.Msg, e.Cause)
+	}
+	return "[BLOCKSTREAM_ERROR] " + e.Msg
+}
+func (e *BlockStreamErr) Code() string      { return "BLOCKSTREAM_ERROR" }
+func (e *BlockStreamErr) Message() string   { return e.Msg }
+func (e *BlockStreamErr) CauseError() error { return e.Cause }
+func (e *BlockStreamErr) Unwrap() error     { return e.Cause }
