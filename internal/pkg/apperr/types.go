@@ -98,21 +98,21 @@ func (e *BlockScanErr) Message() string   { return e.Msg }
 func (e *BlockScanErr) CauseError() error { return e.Cause }
 func (e *BlockScanErr) Unwrap() error     { return e.Cause }
 
-type BlockLockErr struct {
+type BlockStoreErr struct {
 	Msg   string
 	Cause error
 }
 
-func (e *BlockLockErr) Error() string {
+func (e *BlockStoreErr) Error() string {
 	if e.Cause != nil {
 		return fmt.Sprintf("[BLOCKLOCK_ERROR] %s: %v", e.Msg, e.Cause)
 	}
 	return "[BLOCKLOCK_ERROR] " + e.Msg
 }
-func (e *BlockLockErr) Code() string      { return "BLOCKLOCK_ERROR" }
-func (e *BlockLockErr) Message() string   { return e.Msg }
-func (e *BlockLockErr) CauseError() error { return e.Cause }
-func (e *BlockLockErr) Unwrap() error     { return e.Cause }
+func (e *BlockStoreErr) Code() string      { return "BLOCKLOCK_ERROR" }
+func (e *BlockStoreErr) Message() string   { return e.Msg }
+func (e *BlockStoreErr) CauseError() error { return e.Cause }
+func (e *BlockStoreErr) Unwrap() error     { return e.Cause }
 
 type BlockStreamErr struct {
 	Msg   string
