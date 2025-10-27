@@ -2,7 +2,6 @@ package scanner
 
 import (
 	"context"
-	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -12,21 +11,20 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 )
 
 // Config holds configuration for the Ethereum scanner.
 //
-// WebSocketsURL is the Ethereum node WebSocket endpoint used to subscribe to
-// new heads. FinalizedBlocks toggles whether the scanner should poll for
-// finalized blocks instead of subscribing to new heads. FinalizedPollDelay
-// controls the polling frequency (seconds) when finalized scanning is enabled.
-// FinalizedConfirmations is the number of confirmations used to determine
-// finalized block height when polling mode is active.
+// WebSocketsURL is the Ethereum node endpoint used to subscribe to new heads
+// (ws/wss) or to connect for HTTP polling (http/https). When FinalizedBlocks
+// is true, the scanner will poll for finalized blocks using the provided
+// confirmation depth and delay.
 type Config struct {
 	WebSocketsURL          string `validate:"required,uri"`
 	FinalizedBlocks        bool
-	FinalizedPollDelay     uint64 `validate:"required,gte=5,lte=64"`
-	FinalizedConfirmations uint64 `validate:"required,gte=32,lte=128"`
+	FinalizedPollDelay     uint64 `validate:"excluded_unless=FinalizedBlocks true,required,gte=5,lte=64"`
+	FinalizedConfirmations uint64 `validate:"excluded_unless=FinalizedBlocks true,required,gte=32,lte=128"`
 }
 
 // EthereumScanner scans Ethereum blocks either by subscribing to new heads or
@@ -36,11 +34,12 @@ type Config struct {
 // Use NewEthereumScanner to construct an instance and StartScanning to begin
 // scanning. StopScanning cancels the internal context and stops the scanner.
 type EthereumScanner struct {
-	log       applog.AppLogger
-	wg        *sync.WaitGroup
-	validator *validator.Validate
-	config    Config
-	cancel    context.CancelFunc
+	log           applog.AppLogger
+	wg            *sync.WaitGroup
+	validator     *validator.Validate
+	config        Config
+	cancel        context.CancelFunc
+	lastProcessed uint64
 }
 
 // NewEthereumScanner creates a new EthereumScanner with the given log,
@@ -49,7 +48,7 @@ type EthereumScanner struct {
 // goroutine lifecycle.
 func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg Config, v *validator.Validate) (*EthereumScanner, error) {
 	if err := v.Struct(cfg); err != nil {
-		log.Error(fmt.Sprintf("Invalid cfg: %v", err))
+		log.Error("Invalid cfg", "err", err)
 		return nil, &apperr.BlockScanErr{Msg: "Invalid cfg", Cause: err}
 	}
 
@@ -92,23 +91,24 @@ func (s *EthereumScanner) scanNewHeads(ctx context.Context) {
 		default:
 		}
 
-		client, err := ethclient.DialContext(ctx, s.config.WebSocketsURL)
+		client, err := s.connectClient(ctx)
 		if err != nil {
-			s.log.Error(fmt.Sprintf("Failed to connect: %v", err))
-			time.Sleep(3 * time.Second)
+			if ctx.Err() != nil {
+				return
+			}
+			s.log.Error("Failed to connect to Ethereum node", "err", err)
 			continue
 		}
 
 		headers := make(chan *types.Header, 32)
 		sub, err := client.SubscribeNewHead(ctx, headers)
 		if err != nil {
-			s.log.Error(fmt.Sprintf("Subscription failed: %v", err))
+			s.log.Error("Subscription to new heads failed", "err", err)
 			client.Close()
-			time.Sleep(3 * time.Second)
 			continue
 		}
 
-		s.log.Info("Connected and subscribed to new Ethereum blocks")
+		s.log.Info("Subscribed to new Ethereum heads")
 
 	loop:
 		for {
@@ -120,10 +120,9 @@ func (s *EthereumScanner) scanNewHeads(ctx context.Context) {
 				return
 
 			case err := <-sub.Err():
-				s.log.Error(fmt.Sprintf("Subscription error: %v", err))
+				s.log.Warn("Subscription error, will reconnect", "err", err)
 				sub.Unsubscribe()
 				client.Close()
-				time.Sleep(3 * time.Second)
 				break loop
 
 			case header, ok := <-headers:
@@ -131,16 +130,15 @@ func (s *EthereumScanner) scanNewHeads(ctx context.Context) {
 					s.log.Warn("Headers channel closed — restarting subscription")
 					sub.Unsubscribe()
 					client.Close()
-					time.Sleep(3 * time.Second)
 					break loop
 				}
 
 				block, err := client.BlockByHash(ctx, header.Hash())
 				if err != nil {
-					s.log.Error(fmt.Sprintf("Failed to get block: %v", err))
+					s.log.Error("Failed to fetch block by hash", "hash", header.Hash().Hex(), "err", err)
 					continue
 				}
-				s.log.Trace(fmt.Sprintf("Scanned block #%v (%d txs)", block.NumberU64(), len(block.Transactions())))
+				s.log.Trace("Scanned block", "number", block.NumberU64(), "txs", len(block.Transactions()))
 				// TODO: downstream processor
 			}
 		}
@@ -154,6 +152,8 @@ func (s *EthereumScanner) scanNewHeads(ctx context.Context) {
 func (s *EthereumScanner) scanFinalized(ctx context.Context) {
 	s.log.Info("Scanning finalized Ethereum blocks (polling mode)")
 
+	pollDelay := time.Duration(s.config.FinalizedPollDelay) * time.Second
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -162,16 +162,17 @@ func (s *EthereumScanner) scanFinalized(ctx context.Context) {
 		default:
 		}
 
-		client, err := ethclient.DialContext(ctx, s.config.WebSocketsURL)
+		client, err := s.connectClient(ctx)
 		if err != nil {
-			s.log.Error(fmt.Sprintf("Failed to connect: %v", err))
-			time.Sleep(3 * time.Second)
+			if ctx.Err() != nil {
+				return
+			}
+			s.log.Error("Failed to connect to Ethereum node", "err", err)
 			continue
 		}
 
-		s.log.Info("Connected to Ethereum node for finalized blocks")
+		s.log.Info("Connected to Ethereum node for finalized polling")
 
-		var lastProcessed uint64
 		for {
 			select {
 			case <-ctx.Done():
@@ -183,39 +184,40 @@ func (s *EthereumScanner) scanFinalized(ctx context.Context) {
 
 			latest, err := client.BlockNumber(ctx)
 			if err != nil {
-				s.log.Error(fmt.Sprintf("Failed to get latest block number: %v", err))
+				s.log.Error("Failed to get latest block number", "err", err)
 				client.Close()
-				time.Sleep(3 * time.Second)
 				break
 			}
 
 			if latest < s.config.FinalizedConfirmations {
-				s.log.Warn(fmt.Sprintf("Chain height %d < %d — waiting for finalization window",
-					latest, s.config.FinalizedConfirmations))
+				s.log.Warn("Waiting for finalization window", "height", latest, "confirmations", s.config.FinalizedConfirmations)
 				time.Sleep(5 * time.Second)
 				continue
 			}
 
 			finalized := latest - s.config.FinalizedConfirmations
-			if finalized <= lastProcessed { // skip duplicate blocks
-				time.Sleep(time.Duration(s.config.FinalizedPollDelay) * time.Second)
-				continue
+			next := s.lastProcessed + 1
+			if s.lastProcessed == 0 {
+				// On the first run, start at the current finalized tip to avoid replaying a large backlog
+				next = finalized
+			}
+			if next <= finalized {
+				for h := next; h <= finalized; h++ {
+					blk, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(h))
+					if err != nil {
+						s.log.Error("Failed to fetch finalized block", "height", h, "err", err)
+						client.Close()
+						break
+					}
+					s.log.Trace("Scanned finalized block", "number", blk.NumberU64(), "txs", len(blk.Transactions()))
+					// TODO: downstream processor
+					s.lastProcessed = h
+				}
 			}
 
-			block, err := client.BlockByNumber(ctx, new(big.Int).SetUint64(finalized))
-			if err != nil {
-				s.log.Error(fmt.Sprintf("Failed to fetch finalized block: %v", err))
-				client.Close()
-				time.Sleep(3 * time.Second)
-				break
-			}
-
-			s.log.Trace(fmt.Sprintf("Scanned finalized block #%v (%d txs)", block.NumberU64(), len(block.Transactions())))
-			// TODO: downstream processor
-
-			lastProcessed = finalized
-			time.Sleep(time.Duration(s.config.FinalizedPollDelay) * time.Second)
+			time.Sleep(pollDelay)
 		}
+		// reconnect on outer loop
 	}
 }
 
@@ -227,4 +229,31 @@ func (s *EthereumScanner) StopScanning() {
 		s.cancel()
 	}
 	s.log.Info("Ethereum scanning stopped")
+}
+
+// connectClient dials to the Ethereum node with exponential backoff and jitter
+// until success or context cancellation.
+func (s *EthereumScanner) connectClient(ctx context.Context) (*ethclient.Client, error) {
+	var client *ethclient.Client
+	err := pattern.Retry(
+		ctx,
+		func(attempt int) error {
+			c, err := ethclient.DialContext(ctx, s.config.WebSocketsURL)
+			if err != nil {
+				s.log.Warn("Ethereum dial failed", "attempt", attempt, "err", err)
+				return err
+			}
+			client = c
+			return nil
+		},
+		pattern.WithInfiniteAttempts(),
+		pattern.WithInitialDelay(500*time.Millisecond),
+		pattern.WithMaxDelay(10*time.Second),
+		pattern.WithMultiplier(2.0),
+		pattern.WithJitter(0.2),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
