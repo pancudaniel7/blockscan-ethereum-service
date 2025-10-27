@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// DefaultLogger wraps slog.Logger and implements AppLogger.
+// DefaultLogger wraps slog.logger and implements AppLogger.
 type DefaultLogger struct {
 	logger *slog.Logger
 }

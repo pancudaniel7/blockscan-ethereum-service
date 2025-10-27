@@ -48,3 +48,4 @@ __debug_bin
 *.tmp
 *.temp
 __debug*
+.gomodcache/

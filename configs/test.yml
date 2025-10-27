@@ -1,4 +1,5 @@
 server:
+  name: "blockscan-service"
   port: 8080
   host: localhost
 
