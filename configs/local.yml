@@ -10,3 +10,8 @@ redis:
   host: localhost
   port: 6379
   db: 0
+  password: ""
+  use_tls: false
+  pool_size: 16
+  max_retries: 3
+  dial_timeout_seconds: 5
