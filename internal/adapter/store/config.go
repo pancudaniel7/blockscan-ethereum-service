@@ -1,4 +1,4 @@
-package block
+package store
 
 // Config contains connection and behavior options for the Redis-backed
 // BlockLogger. The struct is validated via go-playground/validator tags.
