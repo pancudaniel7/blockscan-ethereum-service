@@ -2,130 +2,117 @@ package apperr
 
 import "fmt"
 
-type InvalidArgErr struct {
+const (
+	invalidArgumentCode = "INVALID_ARGUMENT"
+	notFoundCode        = "NOT_FOUND"
+	alreadyExistsCode   = "ALREADY_EXISTS"
+	notAuthorizedCode   = "NOT_AUTHORIZED"
+	internalErrorCode   = "INTERNAL_ERROR"
+	blockScanCode       = "BLOCKSCAN_ERROR"
+	blockStoreCode      = "BLOCKSTORE_ERROR"
+	blockStreamCode     = "BLOCKSTREAM_ERROR"
+)
+
+type messageCause struct {
 	Msg   string
 	Cause error
 }
 
-func (e *InvalidArgErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[INVALID_ARGUMENT] %s: %v", e.Msg, e.Cause)
+func (e *messageCause) Message() string   { return e.Msg }
+func (e *messageCause) CauseError() error { return e.Cause }
+func (e *messageCause) Unwrap() error     { return e.Cause }
+
+func formatError(code, msg string, cause error) string {
+	if cause != nil {
+		return fmt.Sprintf("[%s] %s: %v", code, msg, cause)
 	}
-	return "[INVALID_ARGUMENT] " + e.Msg
+	return fmt.Sprintf("[%s] %s", code, msg)
 }
-func (e *InvalidArgErr) Code() string      { return "INVALID_ARGUMENT" }
-func (e *InvalidArgErr) Message() string   { return e.Msg }
-func (e *InvalidArgErr) CauseError() error { return e.Cause }
-func (e *InvalidArgErr) Unwrap() error     { return e.Cause }
+
+type InvalidArgErr struct {
+	messageCause
+}
+
+func NewInvalidArgErr(msg string, cause error) *InvalidArgErr {
+	return &InvalidArgErr{messageCause: messageCause{Msg: msg, Cause: cause}}
+}
+
+func (e *InvalidArgErr) Error() string { return formatError(invalidArgumentCode, e.Msg, e.Cause) }
+func (e *InvalidArgErr) Code() string  { return invalidArgumentCode }
 
 type NotFoundErr struct {
-	Msg   string
-	Cause error
+	messageCause
 }
 
-func (e *NotFoundErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[NOT_FOUND] %s: %v", e.Msg, e.Cause)
-	}
-	return "[NOT_FOUND] " + e.Msg
+func NewNotFoundErr(msg string, cause error) *NotFoundErr {
+	return &NotFoundErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
-func (e *NotFoundErr) Code() string      { return "NOT_FOUND" }
-func (e *NotFoundErr) Message() string   { return e.Msg }
-func (e *NotFoundErr) CauseError() error { return e.Cause }
-func (e *NotFoundErr) Unwrap() error     { return e.Cause }
+
+func (e *NotFoundErr) Error() string { return formatError(notFoundCode, e.Msg, e.Cause) }
+func (e *NotFoundErr) Code() string  { return notFoundCode }
 
 type AlreadyExistsErr struct {
-	Msg   string
-	Cause error
+	messageCause
 }
 
-func (e *AlreadyExistsErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[ALREADY_EXISTS] %s: %v", e.Msg, e.Cause)
-	}
-	return "[ALREADY_EXISTS] " + e.Msg
+func NewAlreadyExistsErr(msg string, cause error) *AlreadyExistsErr {
+	return &AlreadyExistsErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
-func (e *AlreadyExistsErr) Code() string      { return "ALREADY_EXISTS" }
-func (e *AlreadyExistsErr) Message() string   { return e.Msg }
-func (e *AlreadyExistsErr) CauseError() error { return e.Cause }
-func (e *AlreadyExistsErr) Unwrap() error     { return e.Cause }
+
+func (e *AlreadyExistsErr) Error() string { return formatError(alreadyExistsCode, e.Msg, e.Cause) }
+func (e *AlreadyExistsErr) Code() string  { return alreadyExistsCode }
 
 type NotAuthorizedErr struct {
-	Msg   string
-	Cause error
+	messageCause
 }
 
-func (e *NotAuthorizedErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[NOT_AUTHORIZED] %s: %v", e.Msg, e.Cause)
-	}
-	return "[NOT_AUTHORIZED] " + e.Msg
+func NewNotAuthorizedErr(msg string, cause error) *NotAuthorizedErr {
+	return &NotAuthorizedErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
-func (e *NotAuthorizedErr) Code() string      { return "NOT_AUTHORIZED" }
-func (e *NotAuthorizedErr) Message() string   { return e.Msg }
-func (e *NotAuthorizedErr) CauseError() error { return e.Cause }
-func (e *NotAuthorizedErr) Unwrap() error     { return e.Cause }
+
+func (e *NotAuthorizedErr) Error() string { return formatError(notAuthorizedCode, e.Msg, e.Cause) }
+func (e *NotAuthorizedErr) Code() string  { return notAuthorizedCode }
 
 type InternalErr struct {
-	Msg   string
-	Cause error
+	messageCause
 }
 
-func (e *InternalErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[INTERNAL_ERROR] %s: %v", e.Msg, e.Cause)
-	}
-	return "[INTERNAL_ERROR] " + e.Msg
+func NewInternalErr(msg string, cause error) *InternalErr {
+	return &InternalErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
-func (e *InternalErr) Code() string      { return "INTERNAL_ERROR" }
-func (e *InternalErr) Message() string   { return e.Msg }
-func (e *InternalErr) CauseError() error { return e.Cause }
-func (e *InternalErr) Unwrap() error     { return e.Cause }
+
+func (e *InternalErr) Error() string { return formatError(internalErrorCode, e.Msg, e.Cause) }
+func (e *InternalErr) Code() string  { return internalErrorCode }
 
 type BlockScanErr struct {
-	Msg   string
-	Cause error
+	messageCause
 }
 
-func (e *BlockScanErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[BLOCKSCAN_ERROR] %s: %v", e.Msg, e.Cause)
-	}
-	return "[BLOCKSCAN_ERROR] " + e.Msg
+func NewBlockScanErr(msg string, cause error) *BlockScanErr {
+	return &BlockScanErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
-func (e *BlockScanErr) Code() string      { return "BLOCKSCAN_ERROR" }
-func (e *BlockScanErr) Message() string   { return e.Msg }
-func (e *BlockScanErr) CauseError() error { return e.Cause }
-func (e *BlockScanErr) Unwrap() error     { return e.Cause }
+
+func (e *BlockScanErr) Error() string { return formatError(blockScanCode, e.Msg, e.Cause) }
+func (e *BlockScanErr) Code() string  { return blockScanCode }
 
 type BlockStoreErr struct {
-	Msg   string
-	Cause error
+	messageCause
 }
 
-func (e *BlockStoreErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[BLOCKLOCK_ERROR] %s: %v", e.Msg, e.Cause)
-	}
-	return "[BLOCKLOCK_ERROR] " + e.Msg
+func NewBlockStoreErr(msg string, cause error) *BlockStoreErr {
+	return &BlockStoreErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
-func (e *BlockStoreErr) Code() string      { return "BLOCKLOCK_ERROR" }
-func (e *BlockStoreErr) Message() string   { return e.Msg }
-func (e *BlockStoreErr) CauseError() error { return e.Cause }
-func (e *BlockStoreErr) Unwrap() error     { return e.Cause }
+
+func (e *BlockStoreErr) Error() string { return formatError(blockStoreCode, e.Msg, e.Cause) }
+func (e *BlockStoreErr) Code() string  { return blockStoreCode }
 
 type BlockStreamErr struct {
-	Msg   string
-	Cause error
+	messageCause
 }
 
-func (e *BlockStreamErr) Error() string {
-	if e.Cause != nil {
-		return fmt.Sprintf("[BLOCKSTREAM_ERROR] %s: %v", e.Msg, e.Cause)
-	}
-	return "[BLOCKSTREAM_ERROR] " + e.Msg
+func NewBlockStreamErr(msg string, cause error) *BlockStreamErr {
+	return &BlockStreamErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
-func (e *BlockStreamErr) Code() string      { return "BLOCKSTREAM_ERROR" }
-func (e *BlockStreamErr) Message() string   { return e.Msg }
-func (e *BlockStreamErr) CauseError() error { return e.Cause }
-func (e *BlockStreamErr) Unwrap() error     { return e.Cause }
+
+func (e *BlockStreamErr) Error() string { return formatError(blockStreamCode, e.Msg, e.Cause) }
+func (e *BlockStreamErr) Code() string  { return blockStreamCode }
