@@ -23,7 +23,7 @@ Reorgs are detected and the service emits update or tombstone events to keep dow
 
 ### Diagram
 
-<img src="docs/diagram.png" alt="Architecture – Ethereum Block → Kafka" width="900">
+<img src="docs/architecture.png" alt="Architecture – Ethereum Block → Kafka" width="900">
 
 
 

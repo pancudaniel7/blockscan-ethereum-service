@@ -40,9 +40,14 @@ type EthereumScanner struct {
 	config        Config
 	cancel        context.CancelFunc
 	lastProcessed uint64
+	handler       BlockHandler
 }
 
 const drainFetchTimeout = 5 * time.Second
+
+// BlockHandler consumes fully fetched blocks from the scanner. Returning an
+// error keeps the scanner running while logging the failure.
+type BlockHandler func(context.Context, *types.Block) error
 
 // NewEthereumScanner creates a new EthereumScanner with the given log,
 // wait group and configuration. The log is used for informational and
@@ -51,7 +56,7 @@ const drainFetchTimeout = 5 * time.Second
 func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg Config, v *validator.Validate) (*EthereumScanner, error) {
 	if err := v.Struct(cfg); err != nil {
 		log.Error("Invalid cfg", "err", err)
-		return nil, &apperr.BlockScanErr{Msg: "Invalid cfg", Cause: err}
+		return nil, apperr.NewBlockScanErr("Invalid cfg", err)
 	}
 
 	return &EthereumScanner{
@@ -62,9 +67,18 @@ func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg Config, v 
 	}, nil
 }
 
+// SetHandler registers the callback invoked for each fully fetched block.
+func (s *EthereumScanner) SetHandler(handler BlockHandler) {
+	s.handler = handler
+}
+
 // StartScanning validates the scanner configuration and starts the scanning
 // goroutine. It returns an error if configuration validation fails.
 func (s *EthereumScanner) StartScanning() error {
+	if s.handler == nil {
+		return apperr.NewBlockScanErr("block handler is not configured", nil)
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 
@@ -171,7 +185,9 @@ outer:
 					continue
 				}
 				s.log.Trace("Scanned block", "number", block.NumberU64(), "txs", len(block.Transactions()))
-				// TODO: downstream processor
+				if err := s.handler(ctx, block); err != nil {
+					s.log.Error("Block handler failed (new heads)", "number", block.NumberU64(), "err", err)
+				}
 			}
 		}
 
@@ -290,7 +306,10 @@ outer:
 			}
 
 			s.log.Trace("Scanned finalized block", "number", blk.NumberU64(), "txs", len(blk.Transactions()))
-			// TODO: downstream processor
+			if err := s.handler(ctx, blk); err != nil {
+				s.log.Error("Block handler failed (finalized)", "number", blk.NumberU64(), "err", err)
+				continue
+			}
 			s.lastProcessed = height
 
 			if draining && len(pendingHeights) == 0 {
