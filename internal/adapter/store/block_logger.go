@@ -14,6 +14,7 @@ import (
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 )
 
 // BlockLogger is a thin Redis-based store for publishing block events to a
@@ -36,6 +37,9 @@ func NewBlockLogger(logger applog.AppLogger, wg *sync.WaitGroup, v *validator.Va
 	if err := v.Struct(cfg); err != nil {
 		logger.Error("invalid redis config: %v", err)
 		return nil, err
+	}
+	if wg == nil {
+		wg = &sync.WaitGroup{}
 	}
 
 	addr := net.JoinHostPort(cfg.Host, cfg.Port)
@@ -65,11 +69,14 @@ func NewBlockLogger(logger applog.AppLogger, wg *sync.WaitGroup, v *validator.Va
 // library function and returns true when the dedup key was set and the message
 // enqueued. Returns false when the dedup key already existed.
 func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, error) {
+	bs.wg.Add(1)
+	defer bs.wg.Done()
+
 	if err := bs.validator.Struct(block); err != nil {
-		return false, &apperr.BlockStoreErr{Msg: "invalid block", Cause: err}
+		return false, apperr.NewBlockStoreErr("invalid block", err)
 	}
-	setKey := fmt.Sprintf("%s:%s", bs.cfg.DedupPrefix, block.Hash.Hex())
-	ttlMs := strconv.FormatInt(int64(bs.cfg.BlockTTLSeconds*1000), 10)
+	setKey := fmt.Sprintf("%s:%s", bs.cfg.Lock.DedupPrefix, block.Hash.Hex())
+	ttlMs := strconv.FormatInt(int64(bs.cfg.Lock.BlockTTLSeconds*1000), 10)
 	id := "*"
 
 	// Minimal field set; extend as needed
@@ -80,25 +87,52 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 
 	// FCALL add_block 2 <setKey> <streamKey> <ttl> <id> <fields...>
 	args := make([]interface{}, 0, 7+len(fields))
-	args = append(args, "FCALL", "add_block", 2, setKey, bs.cfg.StreamKey, ttlMs, id)
+	args = append(args, "FCALL", "add_block", 2, setKey, bs.cfg.Streams.Key, ttlMs, id)
 	for _, f := range fields {
 		args = append(args, f)
 	}
 
-	res, err := bs.rdb.Do(ctx, args...).Result()
+	var stored bool
+	err := pattern.Retry(
+		ctx,
+		func(attempt int) error {
+			res, err := bs.rdb.Do(ctx, args...).Result()
+			if err != nil {
+				bs.logger.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)
+				bs.clearDedupKey(ctx, setKey)
+				return err
+			}
+
+			arr, ok := res.([]interface{})
+			if !ok || len(arr) < 1 {
+				respErr := fmt.Errorf("unexpected FCALL response: %T", res)
+				bs.clearDedupKey(ctx, setKey)
+				return respErr
+			}
+
+			status, ok := arr[0].(int64)
+			if !ok {
+				respErr := fmt.Errorf("unexpected status type: %T", arr[0])
+				bs.clearDedupKey(ctx, setKey)
+				return respErr
+			}
+
+			stored = status == 1
+			return nil
+		},
+		pattern.WithMaxAttempts(3),
+		pattern.WithInitialDelay(200*time.Millisecond),
+		pattern.WithMaxDelay(1*time.Second),
+	)
 	if err != nil {
-		return false, &apperr.BlockStoreErr{Msg: "redis FCALL add_block failed", Cause: err}
+		return false, apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
 	}
 
-	arr, ok := res.([]interface{})
-	if !ok || len(arr) < 1 {
-		return false, &apperr.BlockStoreErr{Msg: fmt.Sprintf("unexpected FCALL response: %T", res)}
-	}
+	return stored, nil
+}
 
-	switch v := arr[0].(type) {
-	case int64:
-		return v == 1, nil
-	default:
-		return false, &apperr.BlockStoreErr{Msg: fmt.Sprintf("unexpected status type: %T", v)}
+func (bs *BlockLogger) clearDedupKey(ctx context.Context, key string) {
+	if err := bs.rdb.Del(ctx, key).Err(); err != nil {
+		bs.logger.Warn("failed to clear dedup key", "key", key, "err", err)
 	}
 }

@@ -18,7 +18,7 @@ type RetryConfig struct {
 
 type RetryOption func(*RetryConfig)
 
-func WithAttempts(n int) RetryOption    { return func(c *RetryConfig) { c.Attempts = n } }
+func WithMaxAttempts(n int) RetryOption { return func(c *RetryConfig) { c.Attempts = n } }
 func WithInfiniteAttempts() RetryOption { return func(c *RetryConfig) { c.Attempts = 0 } }
 func WithInitialDelay(d time.Duration) RetryOption {
 	return func(c *RetryConfig) { c.InitialDelay = d }
@@ -38,9 +38,11 @@ func Retry(ctx context.Context, fn func(attempt int) error, opts ...RetryOption)
 		Multiplier:   2.0,
 		Jitter:       0.2,
 	}
+
 	for _, o := range opts {
 		o(&cfg)
 	}
+
 	if cfg.InitialDelay <= 0 {
 		cfg.InitialDelay = 100 * time.Millisecond
 	}
@@ -50,6 +52,7 @@ func Retry(ctx context.Context, fn func(attempt int) error, opts ...RetryOption)
 	if cfg.Multiplier < 1 {
 		cfg.Multiplier = 1
 	}
+
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 	var lastErr error
 	for attempt := 1; cfg.Attempts <= 0 || attempt <= cfg.Attempts; attempt++ {
@@ -78,6 +81,7 @@ func Retry(ctx context.Context, fn func(attempt int) error, opts ...RetryOption)
 			}
 			delay = time.Duration(float64(delay) * f)
 		}
+
 		t := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():

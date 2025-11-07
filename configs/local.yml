@@ -15,6 +15,13 @@ redis:
   pool_size: 16
   max_retries: 3
   dial_timeout_seconds: 5
-  stream_key: "blocks"
-  dedup_prefix: "block"
-  block_ttl_seconds: 60
+  streams:
+    key: "blocks"
+    consumer_group: "blockstream-consumers-local"
+    consumer_name: "blockstream-local"
+    read_count: 1
+    read_block_timeout_seconds: 5
+    claim_idle_seconds: 60
+  lock:
+    dedup_prefix: "block"
+    block_ttl_seconds: 60
