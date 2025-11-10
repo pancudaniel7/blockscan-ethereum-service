@@ -1,6 +1,6 @@
 server:
   name: "blockscan-service"
-  port: 8080
+  port: 8081
   host: localhost
 
 log:
@@ -25,3 +25,19 @@ redis:
   lock:
     dedup_prefix: "block"
     block_ttl_seconds: 60
+
+scanner:
+  websocket_url: "ws://localhost:8546"
+  finalized_blocks: false
+  finalized_poll_delay: 15
+  finalized_confirmations: 64
+
+kafka:
+  brokers: ["localhost:19092"]
+  topic: "block-upstream-topic"
+  client_id: "blockscan-local"
+  max_retry_attempts: 5
+  retry_initial_backoff_ms: 200
+  retry_max_backoff_ms: 2000
+  retry_jitter: 0.2
+  write_timeout_seconds: 10

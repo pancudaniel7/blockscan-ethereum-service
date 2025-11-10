@@ -1,4 +1,4 @@
-package scanner
+package scan
 
 import (
 	"context"
@@ -9,49 +9,32 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/go-playground/validator/v10"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 )
-
-// Config holds configuration for the Ethereum scanner.
-//
-// WebSocketsURL is the Ethereum node endpoint used to subscribe to new heads
-// (ws/wss) or to connect for HTTP polling (http/https). When FinalizedBlocks
-// is true, the scanner will poll for finalized blocks using the provided
-// confirmation depth and delay.
-type Config struct {
-	WebSocketsURL          string `validate:"required,uri"`
-	FinalizedBlocks        bool
-	FinalizedPollDelay     uint64 `validate:"excluded_unless=FinalizedBlocks true,required,gte=5,lte=64"`
-	FinalizedConfirmations uint64 `validate:"excluded_unless=FinalizedBlocks true,required,gte=32,lte=128"`
-}
 
 // EthereumScanner scans Ethereum blocks either by subscribing to new heads or
 // by polling for finalized blocks. It performs validation on its Config when
 // started and uses the provided log for diagnostic messages.
 //
 // Use NewEthereumScanner to construct an instance and StartScanning to begin
-// scanning. StopScanning cancels the internal context and stops the scanner.
+// scanning. StopScanning cancels the internal context and stops the scan.
 type EthereumScanner struct {
 	log           applog.AppLogger
 	wg            *sync.WaitGroup
-	validator     *validator.Validate
 	config        Config
 	cancel        context.CancelFunc
 	lastProcessed uint64
-	handler       BlockHandler
+	handler       port.BlockHandler
 }
 
 const drainFetchTimeout = 5 * time.Second
 
-// BlockHandler consumes fully fetched blocks from the scanner. Returning an
-// error keeps the scanner running while logging the failure.
-type BlockHandler func(context.Context, *types.Block) error
-
 // NewEthereumScanner creates a new EthereumScanner with the given log,
 // wait group and configuration. The log is used for informational and
-// error messages. The provided wait group will be used to track the scanner
+// error messages. The provided wait group will be used to track the scan
 // goroutine lifecycle.
 func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg Config, v *validator.Validate) (*EthereumScanner, error) {
 	if err := v.Struct(cfg); err != nil {
@@ -60,19 +43,18 @@ func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg Config, v 
 	}
 
 	return &EthereumScanner{
-		log:       log,
-		wg:        wg,
-		validator: v,
-		config:    cfg,
+		log:    log,
+		wg:     wg,
+		config: cfg,
 	}, nil
 }
 
 // SetHandler registers the callback invoked for each fully fetched block.
-func (s *EthereumScanner) SetHandler(handler BlockHandler) {
+func (s *EthereumScanner) SetHandler(handler port.BlockHandler) {
 	s.handler = handler
 }
 
-// StartScanning validates the scanner configuration and starts the scanning
+// StartScanning validates the scan configuration and starts the scanning
 // goroutine. It returns an error if configuration validation fails.
 func (s *EthereumScanner) StartScanning() error {
 	if s.handler == nil {
@@ -103,7 +85,7 @@ outer:
 	for {
 		select {
 		case <-ctx.Done():
-			s.log.Info("Stopping Ethereum scanner...")
+			s.log.Trace("Stopping Ethereum scan...")
 			return
 		default:
 		}
@@ -125,14 +107,14 @@ outer:
 			continue
 		}
 
-		s.log.Info("Subscribed to new Ethereum heads")
+		s.log.Trace("Subscribed to new Ethereum heads")
 
 		draining := false
 
 	inner:
 		for {
 			if draining && len(headers) == 0 {
-				s.log.Info("Drained buffered headers; closing subscription")
+				s.log.Trace("Drained buffered headers; closing subscription")
 				sub.Unsubscribe()
 				client.Close()
 				return
@@ -141,13 +123,13 @@ outer:
 			select {
 			case <-ctx.Done():
 				if !draining {
-					s.log.Info("Cancellation received; draining buffered headers...")
+					s.log.Trace("Cancellation received; draining buffered headers...")
 					draining = true
 				}
 
 			case err := <-sub.Err():
 				if draining {
-					s.log.Info("Subscription closed while draining", "err", err)
+					s.log.Trace("Subscription closed while draining", "err", err)
 					sub.Unsubscribe()
 					client.Close()
 					return
@@ -160,7 +142,7 @@ outer:
 			case header, ok := <-headers:
 				if !ok {
 					if draining {
-						s.log.Info("Headers channel drained")
+						s.log.Trace("Headers channel drained")
 						sub.Unsubscribe()
 						client.Close()
 						return
@@ -200,7 +182,7 @@ outer:
 // the context is canceled and will sleep between iterations according to the
 // configured poll delay.
 func (s *EthereumScanner) scanFinalized(ctx context.Context) {
-	s.log.Info("Scanning finalized Ethereum blocks (polling mode)")
+	s.log.Trace("Scanning finalized Ethereum blocks (polling mode)")
 
 	pollDelay := time.Duration(s.config.FinalizedPollDelay) * time.Second
 
@@ -208,7 +190,7 @@ outer:
 	for {
 		select {
 		case <-ctx.Done():
-			s.log.Info("Stopping finalized scanner...")
+			s.log.Trace("Stopping finalized scan...")
 			return
 		default:
 		}
@@ -222,7 +204,7 @@ outer:
 			continue
 		}
 
-		s.log.Info("Connected to Ethereum node for finalized polling")
+		s.log.Trace("Connected to Ethereum node for finalized polling")
 
 		pendingHeights := make([]uint64, 0)
 		draining := false
@@ -232,7 +214,7 @@ outer:
 				select {
 				case <-ctx.Done():
 					if !draining {
-						s.log.Info("Cancellation received; draining finalized backlog...")
+						s.log.Trace("Cancellation received; draining finalized backlog...")
 						draining = true
 					}
 				default:
@@ -243,7 +225,7 @@ outer:
 				latest, err := client.BlockNumber(ctx)
 				if err != nil {
 					if ctx.Err() != nil {
-						s.log.Info("Stop requested while fetching block number; draining backlog")
+						s.log.Trace("Stop requested while fetching block number; draining backlog")
 						draining = true
 						continue
 					}
@@ -273,7 +255,7 @@ outer:
 
 			if len(pendingHeights) == 0 {
 				if draining {
-					s.log.Info("Finalized backlog drained; closing client")
+					s.log.Trace("Finalized backlog drained; closing client")
 					client.Close()
 					return
 				}
@@ -296,7 +278,7 @@ outer:
 			}
 			if err != nil {
 				if ctx.Err() != nil {
-					s.log.Info("Context canceled while fetching finalized block, continuing drain", "height", height)
+					s.log.Trace("Context canceled while fetching finalized block, continuing drain", "height", height)
 					draining = true
 					continue
 				}
@@ -313,7 +295,7 @@ outer:
 			s.lastProcessed = height
 
 			if draining && len(pendingHeights) == 0 {
-				s.log.Info("Finalized backlog drained; closing client")
+				s.log.Trace("Finalized backlog drained; closing client")
 				client.Close()
 				return
 			}
@@ -321,14 +303,14 @@ outer:
 	}
 }
 
-// StopScanning cancels the scanner's internal context (if any), which causes
+// StopScanning cancels the scan's internal context (if any), which causes
 // the scanning goroutine to exit gracefully.
 func (s *EthereumScanner) StopScanning() {
 	if s.cancel != nil {
-		s.log.Info("Cancelling Ethereum scanning...")
+		s.log.Trace("Cancelling Ethereum scanning...")
 		s.cancel()
 	}
-	s.log.Info("Ethereum scanning stopped")
+	s.log.Trace("Ethereum scanning stopped")
 }
 
 // connectClient dials to the Ethereum node with exponential backoff and jitter

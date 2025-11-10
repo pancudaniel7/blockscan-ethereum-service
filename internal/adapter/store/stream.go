@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/go-redis/redis/v8"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
@@ -19,28 +20,19 @@ import (
 // BlockStream encapsulates Redis stream reding new stream block entries.
 // It mirrors the cache.Config options and uses the shared validator instance.
 type BlockStream struct {
-	rdb       *redis.Client
-	logger    applog.AppLogger
-	wg        *sync.WaitGroup
-	mu        sync.Mutex
-	cancel    context.CancelFunc
-	running   bool
-	handler   StreamMessageHandler
-	validator *validator.Validate
-	cfg       Config
+	rdb     *redis.Client
+	logger  applog.AppLogger
+	wg      *sync.WaitGroup
+	mu      sync.Mutex
+	cancel  context.CancelFunc
+	running bool
+	handler port.StreamMessageHandler
+	cfg     Config
 }
-
-// StreamMessageHandler processes a single Redis stream message. Returning an
-// error leaves the message pending so it can be retried by this or another
-// consumer. A nil error results in acknowledging the message.
-type StreamMessageHandler func(context.Context, redis.XMessage) error
 
 // NewBlockStream validates the Config, constructs a Redis client with optional
 // TLS, and returns an initialized BlockStream.
 func NewBlockStream(logger applog.AppLogger, wg *sync.WaitGroup, v *validator.Validate, cfg Config) (*BlockStream, error) {
-	if v == nil {
-		v = validator.New()
-	}
 	if err := v.Struct(cfg); err != nil {
 		logger.Error("invalid redis config: %v", err)
 		return nil, err
@@ -62,20 +54,17 @@ func NewBlockStream(logger applog.AppLogger, wg *sync.WaitGroup, v *validator.Va
 	rdb := redis.NewClient(opts)
 
 	return &BlockStream{
-		rdb:       rdb,
-		logger:    logger,
-		wg:        wg,
-		validator: v,
-		cfg:       cfg,
+		rdb:    rdb,
+		logger: logger,
+		wg:     wg,
+		cfg:    cfg,
 	}, nil
 }
 
 // SetHandler installs the callback used to process each Redis stream message.
 // It must be invoked before StartReadFromStream; otherwise the reader returns
 // an error.
-func (bs *BlockStream) SetHandler(handler StreamMessageHandler) {
-	bs.mu.Lock()
-	defer bs.mu.Unlock()
+func (bs *BlockStream) SetHandler(handler port.StreamMessageHandler) {
 	bs.handler = handler
 }
 
@@ -121,7 +110,7 @@ func (bs *BlockStream) StartReadFromStream() error {
 			bs.running = false
 			bs.cancel = nil
 			bs.mu.Unlock()
-			bs.logger.Info("Stopped reading from Redis stream", "stream", bs.cfg.Streams.Key)
+			bs.logger.Trace("Stopped reading from Redis stream", "stream", bs.cfg.Streams.Key)
 		}()
 
 		bs.runReader(streamCtx, handler)
@@ -141,14 +130,14 @@ func (bs *BlockStream) StopReadFromStream() {
 	bs.cancel = nil
 	bs.mu.Unlock()
 
-	bs.logger.Info("Stopping Redis stream reader...", "stream", bs.cfg.Streams.Key)
+	bs.logger.Trace("Stopping Redis stream reader...", "stream", bs.cfg.Streams.Key)
 	cancel()
 }
 
 func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
 	err := bs.rdb.XGroupCreateMkStream(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, "0").Err()
 	if err == nil {
-		bs.logger.Info("Created Redis consumer group", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
+		bs.logger.Trace("Created Redis consumer group", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
 		return nil
 	}
 	if strings.Contains(err.Error(), "BUSYGROUP") {
@@ -182,7 +171,7 @@ func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
 	)
 }
 
-func (bs *BlockStream) runReader(ctx context.Context, handler StreamMessageHandler) {
+func (bs *BlockStream) runReader(ctx context.Context, handler port.StreamMessageHandler) {
 	readCount := bs.cfg.Streams.ReadCount
 	if readCount <= 0 {
 		readCount = 1
@@ -210,7 +199,7 @@ func (bs *BlockStream) runReader(ctx context.Context, handler StreamMessageHandl
 
 	claimIdle := time.Duration(bs.cfg.Streams.ClaimIdleSeconds) * time.Second
 
-	bs.logger.Info(
+	bs.logger.Trace(
 		"Starting Redis stream reader",
 		"stream", bs.cfg.Streams.Key,
 		"group", bs.cfg.Streams.ConsumerGroup,
@@ -221,7 +210,7 @@ func (bs *BlockStream) runReader(ctx context.Context, handler StreamMessageHandl
 	for {
 		select {
 		case <-ctx.Done():
-			bs.logger.Info("Stream context cancelled, shutting down reader", "stream", bs.cfg.Streams.Key)
+			bs.logger.Trace("Stream context cancelled, shutting down reader", "stream", bs.cfg.Streams.Key)
 			return
 		default:
 		}
@@ -260,7 +249,7 @@ func (bs *BlockStream) runReader(ctx context.Context, handler StreamMessageHandl
 	}
 }
 
-func (bs *BlockStream) consumeMessages(ctx context.Context, args *redis.XReadGroupArgs, handler StreamMessageHandler, drainPending bool) error {
+func (bs *BlockStream) consumeMessages(ctx context.Context, args *redis.XReadGroupArgs, handler port.StreamMessageHandler, drainPending bool) error {
 	for {
 		streams, err := bs.rdb.XReadGroup(ctx, args).Result()
 		if err != nil {
@@ -285,7 +274,7 @@ func (bs *BlockStream) consumeMessages(ctx context.Context, args *redis.XReadGro
 	}
 }
 
-func (bs *BlockStream) claimStaleMessages(ctx context.Context, handler StreamMessageHandler, minIdle time.Duration, count int64) error {
+func (bs *BlockStream) claimStaleMessages(ctx context.Context, handler port.StreamMessageHandler, minIdle time.Duration, count int64) error {
 	start := "0-0"
 
 	for {
@@ -318,7 +307,7 @@ func (bs *BlockStream) claimStaleMessages(ctx context.Context, handler StreamMes
 	}
 }
 
-func (bs *BlockStream) dispatchMessages(ctx context.Context, streams []redis.XStream, handler StreamMessageHandler) {
+func (bs *BlockStream) dispatchMessages(ctx context.Context, streams []redis.XStream, handler port.StreamMessageHandler) {
 	for _, stream := range streams {
 		for _, message := range stream.Messages {
 			if err := handler(ctx, message); err != nil {

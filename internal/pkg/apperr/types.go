@@ -116,3 +116,14 @@ func NewBlockStreamErr(msg string, cause error) *BlockStreamErr {
 
 func (e *BlockStreamErr) Error() string { return formatError(blockStreamCode, e.Msg, e.Cause) }
 func (e *BlockStreamErr) Code() string  { return blockStreamCode }
+
+type BlockProcessErr struct {
+	messageCause
+}
+
+func NewBlockProcessErr(msg string, cause error) *BlockProcessErr {
+	return &BlockProcessErr{messageCause: messageCause{Msg: msg, Cause: cause}}
+}
+
+func (e *BlockProcessErr) Error() string { return formatError(blockStreamCode, e.Msg, e.Cause) }
+func (e *BlockProcessErr) Code() string  { return blockStreamCode }
