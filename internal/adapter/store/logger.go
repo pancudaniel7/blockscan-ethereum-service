@@ -8,6 +8,7 @@ import (
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,16 +28,16 @@ import (
 // "add_block" to avoid races.
 type BlockLogger struct {
 	rdb       *redis.Client
-	logger    applog.AppLogger
+	log       applog.AppLogger
 	validator *validator.Validate
 	cfg       Config
 }
 
 // NewBlockLogger creates a Redis client from the provided Config, validates the
 // configuration, optionally enables TLS, and returns an initialized BlockLogger.
-func NewBlockLogger(logger applog.AppLogger, _ *sync.WaitGroup, v *validator.Validate, cfg *Config) (*BlockLogger, error) {
+func NewBlockLogger(log applog.AppLogger, _ *sync.WaitGroup, v *validator.Validate, cfg *Config) (*BlockLogger, error) {
 	if err := v.Struct(cfg); err != nil {
-		logger.Error("invalid redis config: %v", err)
+		log.Error("invalid redis config: %v", err)
 		return nil, apperr.NewBlockStoreErr("invalid redis config", err)
 	}
 
@@ -56,7 +57,7 @@ func NewBlockLogger(logger applog.AppLogger, _ *sync.WaitGroup, v *validator.Val
 	rdb := redis.NewClient(opts)
 	return &BlockLogger{
 		rdb:       rdb,
-		logger:    logger,
+		log:       log,
 		validator: v,
 		cfg:       *cfg,
 	}, nil
@@ -99,7 +100,7 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 		func(attempt int) error {
 			res, err := bs.rdb.Do(ctx, args...).Result()
 			if err != nil {
-				bs.logger.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)
+				bs.log.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)
 				return apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
 			}
 
@@ -113,8 +114,25 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 				return apperr.NewBlockStoreErr("unexpected FCALL status type", fmt.Errorf("type=%T", arr[0]))
 			}
 
-			stored = status == 1
-			return nil
+			if status == 1 {
+				stored = true
+				return nil
+			}
+
+			stored = false
+			if len(arr) > 1 {
+				if reason, ok := arr[1].(string); ok {
+					switch strings.ToUpper(reason) {
+					case "EXISTS":
+						bs.log.Trace("Block already logged; skipping", "hash", block.Hash.Hex(), "number", block.Header.Number)
+						return nil
+					case "XADD_ERR":
+						bs.log.Warn("Redis XADD failed while adding block", "hash", block.Hash.Hex(), "number", block.Header.Number)
+						return apperr.NewBlockStoreErr("redis add_block XADD failed", nil)
+					}
+				}
+			}
+			return apperr.NewBlockStoreErr("redis add_block failed with unknown reason", nil)
 		},
 		pattern.WithMaxAttempts(3),
 		pattern.WithInitialDelay(200*time.Millisecond),

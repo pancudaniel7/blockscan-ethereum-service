@@ -27,27 +27,27 @@ var (
 )
 
 func initComponents() {
-	var err error
-	blockStoreLogger, err = infra.InitStoreLogger(logger, &wg, valid)
-	if err != nil {
-		panic("Failed to init store logger: " + err.Error())
-	}
+    var err error
+    blockStoreLogger, err = infra.InitStoreLogger(logger, &wg, valid)
+    if err != nil {
+        panic("Failed to init store logger: " + err.Error())
+    }
 
-	blockStreamReader, err = infra.InitBlockStreamReader(logger, &wg, valid)
-	if err != nil {
-		panic("Failed to init block stream: " + err.Error())
-	}
-	blockPublisher, err = infra.InitBlockPublisher(logger, valid)
-	if err != nil {
-		panic("Failed to init block publisher: " + err.Error())
-	}
+    blockStreamReader, err = infra.InitBlockStreamReader(logger, &wg, valid)
+    if err != nil {
+        panic("Failed to init block stream: " + err.Error())
+    }
+    blockPublisher, err = infra.InitBlockPublisher(logger, valid)
+    if err != nil {
+        panic("Failed to init block publisher: " + err.Error())
+    }
 
-	blockPublisher, err = infra.InitBlockPublisher(logger, valid)
-	if err != nil {
-		panic("Failed to init block publisher: " + err.Error())
-	}
+    blockScanner, err = infra.InitScanner(logger, &wg, valid)
+    if err != nil {
+        panic("Failed to init block scanner: " + err.Error())
+    }
 
-	blockProcessorService = usecase.NewBlockProcessorService(logger, blockStoreLogger, blockStreamReader, blockPublisher)
+    blockProcessorService = usecase.NewBlockProcessorService(logger, blockStoreLogger, blockStreamReader, blockPublisher)
 
 	blockScanner.SetHandler(blockProcessorService.StoreBlock)
 	blockStreamReader.SetHandler(blockProcessorService.ReadAndPublishBlock)
