@@ -29,7 +29,7 @@ func (bps *BlockProcessorService) StoreBlock(ctx context.Context, block *types.B
 	}
 
 	entityBlock := mapBlock(block)
-	stored, err := bps.storeLogger.Store(ctx, entityBlock)
+	stored, err := bps.storeLogger.StoreBlock(ctx, entityBlock)
 	if err != nil {
 		bps.log.Error("failed to storeLogger block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex(), "err", err)
 		return apperr.NewBlockProcessErr("failed to storeLogger block", err)

@@ -330,6 +330,31 @@ func (bs *BlockStream) ackMessage(ctx context.Context, messageID string) error {
 	if messageID == "" {
 		return nil
 	}
-	_, err := bs.rdb.XAck(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, messageID).Result()
-	return err
+	shouldRetry := func(err error) bool {
+		if err == nil {
+			return false
+		}
+		if errors.Is(err, context.Canceled) {
+			return false
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			return true
+		}
+		return true
+	}
+
+	return pattern.Retry(
+		ctx,
+		func(attempt int) error {
+			_, err := bs.rdb.XAck(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, messageID).Result()
+			if err != nil {
+				bs.logger.Warn("XACK failed", "stream", bs.cfg.Streams.Key, "id", messageID, "attempt", attempt, "err", err)
+			}
+			return err
+		},
+		pattern.WithMaxAttempts(3),
+		pattern.WithInitialDelay(100*time.Millisecond),
+		pattern.WithMaxDelay(500*time.Millisecond),
+		pattern.WithShouldRetry(shouldRetry),
+	)
 }

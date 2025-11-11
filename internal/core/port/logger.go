@@ -8,5 +8,5 @@ import (
 
 // StoreLogger abstracts the persistence layer responsible for deduplicated block storage.
 type StoreLogger interface {
-	Store(ctx context.Context, block *entity.Block) (bool, error)
+	StoreBlock(ctx context.Context, block *entity.Block) (bool, error)
 }

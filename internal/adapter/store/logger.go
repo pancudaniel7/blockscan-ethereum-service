@@ -62,10 +62,10 @@ func NewBlockLogger(log applog.AppLogger, _ *sync.WaitGroup, v *validator.Valida
 	}, nil
 }
 
-// Store publishes a block to the configured Redis stream using the `add_block`
+// StoreBlock publishes a block to the configured Redis stream using the `add_block`
 // library function and returns true when the dedup key was set and the message
 // enqueued. Returns false when the dedup key already existed.
-func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, error) {
+func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (bool, error) {
 	if err := bs.validator.Struct(block); err != nil {
 		return false, apperr.NewBlockStoreErr("invalid block", err)
 	}
