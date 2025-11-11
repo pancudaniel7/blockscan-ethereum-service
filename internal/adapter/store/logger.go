@@ -75,7 +75,10 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 		return false, apperr.NewBlockStoreErr("failed to marshal block payload", err)
 	}
 
-	setKey := fmt.Sprintf("%s:%s", bs.cfg.Lock.DedupPrefix, block.Hash.Hex())
+	// Ensure dedup key hashes to same Redis Cluster slot as the stream key by
+	// embedding the stream's hash tag into the dedup key.
+	tag := clusterHashTag(bs.cfg.Streams.Key)
+	setKey := fmt.Sprintf("{%s}:%s:%s", tag, bs.cfg.Lock.DedupPrefix, block.Hash.Hex())
 	ttlMs := strconv.FormatInt(int64(bs.cfg.Lock.BlockTTLSeconds*1000), 10)
 	id := "*"
 
@@ -143,4 +146,22 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 	}
 
 	return stored, nil
+}
+
+// clusterHashTag extracts the hash tag used by Redis Cluster for a given key.
+// If the key contains a {...} substring, returns the text inside the first
+// braces; otherwise returns the full key. Using the returned value inside
+// braces ensures both keys target the same hash slot.
+func clusterHashTag(key string) string {
+	start := strings.IndexByte(key, '{')
+	if start >= 0 {
+		end := strings.IndexByte(key[start+1:], '}')
+		if end >= 0 {
+			tag := key[start+1 : start+1+end]
+			if tag != "" {
+				return tag
+			}
+		}
+	}
+	return key
 }
