@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"net"
 	"strconv"
@@ -75,6 +76,12 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 	if err := bs.validator.Struct(block); err != nil {
 		return false, apperr.NewBlockStoreErr("invalid block", err)
 	}
+
+	payload, err := json.Marshal(block)
+	if err != nil {
+		return false, apperr.NewBlockStoreErr("failed to marshal block payload", err)
+	}
+
 	setKey := fmt.Sprintf("%s:%s", bs.cfg.Lock.DedupPrefix, block.Hash.Hex())
 	ttlMs := strconv.FormatInt(int64(bs.cfg.Lock.BlockTTLSeconds*1000), 10)
 	id := "*"
@@ -83,6 +90,7 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 	fields := []string{
 		"hash", block.Hash.Hex(),
 		"number", strconv.FormatUint(block.Header.Number, 10),
+		"payload", string(payload),
 	}
 
 	// FCALL add_block 2 <setKey> <streamKey> <ttl> <id> <fields...>
@@ -93,7 +101,7 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 	}
 
 	var stored bool
-	err := pattern.Retry(
+	err = pattern.Retry(
 		ctx,
 		func(attempt int) error {
 			res, err := bs.rdb.Do(ctx, args...).Result()

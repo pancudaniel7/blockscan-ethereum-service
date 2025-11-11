@@ -26,11 +26,6 @@ var (
 	blockProcessorService port.ProcessorService
 )
 
-func initHandlers() {
-	blockScanner.SetHandler(blockProcessorService.StoreBlock)
-	blockStreamReader.SetHandler(blockProcessorService.ReadAndPublishBlock)
-}
-
 func initComponents() {
 	var err error
 	blockStoreLogger, err = infra.InitStoreLogger(logger, &wg, valid)
@@ -47,14 +42,15 @@ func initComponents() {
 		panic("Failed to init block publisher: " + err.Error())
 	}
 
-	blockPublisher, err := infra.InitBlockPublisher(logger, valid)
+	blockPublisher, err = infra.InitBlockPublisher(logger, valid)
 	if err != nil {
 		panic("Failed to init block publisher: " + err.Error())
 	}
 
-	blockProcessorService = usecase.NewBlockProcessorService(logger, blockStoreLogger, blockPublisher)
-	// Init scan and stream reader handlers
-	initHandlers()
+	blockProcessorService = usecase.NewBlockProcessorService(logger, blockStoreLogger, blockStreamReader, blockPublisher)
+
+	blockScanner.SetHandler(blockProcessorService.StoreBlock)
+	blockStreamReader.SetHandler(blockProcessorService.ReadAndPublishBlock)
 }
 
 func main() {
@@ -63,11 +59,27 @@ func main() {
 	}
 	logger = applog.NewAppDefaultLogger()
 	valid = validator.New()
-	initComponents()
 
+	initComponents()
 	server = infra.StartServer(logger, &wg)
+
+	// Start stream reader
+	if err := blockStreamReader.StartReadFromStream(); err != nil {
+		logger.Error("Failed to start block stream reader: ", "err", err)
+		panic("Failed to start block stream reader: " + err.Error())
+	}
+
+	// Start block scanner
+	if err := blockScanner.StartScanning(); err != nil {
+		logger.Error("Failed to start block scanner: ", "err", err)
+		panic("Failed to start block scanner: " + err.Error())
+	}
+
+	// Shutdown handling
 	callBack := func() error {
 		logger.Info("Executing shutdown routines...")
+		blockScanner.StopScanning()
+		blockStreamReader.StopReadFromStream()
 		return nil
 	}
 	infra.ShutdownServer(logger, &wg, server, callBack)

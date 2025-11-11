@@ -70,6 +70,10 @@ func (bs *BlockStream) SetHandler(handler port.StreamMessageHandler) {
 
 func (bs *BlockStream) StartReadFromStream() error {
 	bs.mu.Lock()
+	if bs.handler == nil {
+		return apperr.NewBlockStreamErr("stream handler is not configured", nil)
+	}
+
 	if bs.running {
 		bs.mu.Unlock()
 		return apperr.NewBlockStreamErr("block stream reader already running", nil)
@@ -140,6 +144,7 @@ func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
 		bs.logger.Trace("Created Redis consumer group", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
 		return nil
 	}
+
 	if strings.Contains(err.Error(), "BUSYGROUP") {
 		bs.logger.Warn("Redis consumer group already exists", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
 		return nil
@@ -258,6 +263,7 @@ func (bs *BlockStream) consumeMessages(ctx context.Context, args *redis.XReadGro
 			}
 			return err
 		}
+
 		if len(streams) == 0 {
 			if drainPending {
 				return nil
@@ -266,7 +272,6 @@ func (bs *BlockStream) consumeMessages(ctx context.Context, args *redis.XReadGro
 		}
 
 		bs.dispatchMessages(ctx, streams, handler)
-
 		if drainPending {
 			continue
 		}
