@@ -3,9 +3,7 @@ package store
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"net"
 	"strconv"
 	"strings"
@@ -15,6 +13,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/go-redis/redis/v8"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
@@ -71,7 +70,7 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 		return false, apperr.NewBlockStoreErr("invalid block", err)
 	}
 
-	payload, err := json.Marshal(usecase.ToDTO(block))
+	payload, err := usecase.MarshalBlockJSON(block)
 	if err != nil {
 		return false, apperr.NewBlockStoreErr("failed to marshal block payload", err)
 	}
@@ -98,6 +97,7 @@ func (bs *BlockLogger) Store(ctx context.Context, block *entity.Block) (bool, er
 	err = pattern.Retry(
 		ctx,
 		func(attempt int) error {
+			// Call add_block redis function
 			res, err := bs.rdb.Do(ctx, args...).Result()
 			if err != nil {
 				bs.log.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)

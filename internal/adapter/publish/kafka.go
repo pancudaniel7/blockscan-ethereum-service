@@ -2,9 +2,7 @@ package publish
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"net"
 	"strconv"
 	"time"
@@ -13,6 +11,7 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
@@ -96,7 +95,7 @@ func (kp *KafkaPublisher) PublishBlock(block *entity.Block) error {
 		return apperr.NewInvalidArgErr("block is required", nil)
 	}
 
-	payload, err := json.Marshal(usecase.ToDTO(block))
+	payload, err := usecase.MarshalBlockJSON(block)
 	if err != nil {
 		kp.log.Error("Failed to marshal block payload", "err", err)
 		return apperr.NewBlockStreamErr("failed to marshal block payload", err)

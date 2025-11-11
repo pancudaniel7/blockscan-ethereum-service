@@ -49,3 +49,4 @@ __debug_bin
 *.temp
 __debug*
 .gomodcache/
+.gocache/

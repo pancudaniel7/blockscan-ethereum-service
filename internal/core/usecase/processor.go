@@ -2,7 +2,6 @@ package usecase
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -57,12 +56,10 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		return apperr.NewBlockProcessErr("failed to extract fields from stream message", err)
 	}
 
-	var blockDTO BlockDTO
-	if err := json.Unmarshal([]byte(*payload), &blockDTO); err != nil {
+	block, err := UnmarshalBlockJSON([]byte(*payload))
+	if err != nil {
 		return apperr.NewBlockProcessErr("failed to unmarshal block payload", err)
 	}
-
-	block := FromDTO(&blockDTO)
 
 	if (block.Hash == common.Hash{}) && *hash != "" {
 		block.Hash = common.HexToHash(*hash)

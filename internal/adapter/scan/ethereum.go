@@ -22,12 +22,14 @@ import (
 // Use NewEthereumScanner to construct an instance and StartScanning to begin
 // scanning. StopScanning cancels the internal context and stops the scan.
 type EthereumScanner struct {
-	log           applog.AppLogger
-	wg            *sync.WaitGroup
-	config        Config
-	cancel        context.CancelFunc
-	lastProcessed uint64
-	handler       port.BlockHandler
+    log           applog.AppLogger
+    wg            *sync.WaitGroup
+    config        Config
+    cancel        context.CancelFunc
+    lastProcessed uint64
+    handler       port.BlockHandler
+    mu            sync.Mutex
+    running       bool
 }
 
 const drainFetchTimeout = 5 * time.Second
@@ -57,24 +59,38 @@ func (s *EthereumScanner) SetHandler(handler port.BlockHandler) {
 // StartScanning validates the scan configuration and starts the scanning
 // goroutine. It returns an error if configuration validation fails.
 func (s *EthereumScanner) StartScanning() error {
-	if s.handler == nil {
-		return apperr.NewBlockScanErr("block handler is not configured", nil)
-	}
+    s.mu.Lock()
+    if s.running {
+        s.mu.Unlock()
+        return apperr.NewBlockScanErr("scanner already running", nil)
+    }
+    if s.handler == nil {
+        s.mu.Unlock()
+        return apperr.NewBlockScanErr("block handler is not configured", nil)
+    }
 
-	ctx, cancel := context.WithCancel(context.Background())
-	s.cancel = cancel
+    ctx, cancel := context.WithCancel(context.Background())
+    s.cancel = cancel
+    s.running = true
+    s.mu.Unlock()
 
-	s.wg.Add(1)
-	go func() {
-		defer s.wg.Done()
-		if s.config.FinalizedBlocks {
-			s.scanFinalized(ctx)
-		} else {
-			s.scanNewHeads(ctx)
-		}
-	}()
+    s.wg.Add(1)
+    go func() {
+        defer s.wg.Done()
+        defer func() {
+            s.mu.Lock()
+            s.running = false
+            s.cancel = nil
+            s.mu.Unlock()
+        }()
+        if s.config.FinalizedBlocks {
+            s.scanFinalized(ctx)
+        } else {
+            s.scanNewHeads(ctx)
+        }
+    }()
 
-	return nil
+    return nil
 }
 
 // scanNewHeads subscribes to new head events via WebSockets and processes
@@ -305,11 +321,19 @@ outer:
 // StopScanning cancels the scan's internal context (if any), which causes
 // the scanning goroutine to exit gracefully.
 func (s *EthereumScanner) StopScanning() {
-	if s.cancel != nil {
-		s.log.Trace("Cancelling Ethereum scanning...")
-		s.cancel()
-	}
-	s.log.Trace("Ethereum scanning stopped")
+    s.mu.Lock()
+    if s.cancel == nil {
+        s.mu.Unlock()
+        s.log.Trace("Ethereum scanning stopped")
+        return
+    }
+    cancel := s.cancel
+    s.cancel = nil
+    s.mu.Unlock()
+
+    s.log.Trace("Cancelling Ethereum scanning...")
+    cancel()
+    s.log.Trace("Ethereum scanning stopped")
 }
 
 // connectClient dials to the Ethereum node with exponential backoff and jitter
