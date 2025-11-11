@@ -108,7 +108,6 @@ outer:
 		}
 
 		s.log.Trace("Subscribed to new Ethereum heads")
-
 		draining := false
 
 	inner:

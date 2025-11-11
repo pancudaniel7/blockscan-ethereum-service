@@ -8,7 +8,6 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/go-redis/redis/v8"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
@@ -58,10 +57,12 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		return apperr.NewBlockProcessErr("failed to extract fields from stream message", err)
 	}
 
-	var block entity.Block
-	if err := json.Unmarshal([]byte(*payload), &block); err != nil {
+	var blockDTO BlockDTO
+	if err := json.Unmarshal([]byte(*payload), &blockDTO); err != nil {
 		return apperr.NewBlockProcessErr("failed to unmarshal block payload", err)
 	}
+
+	block := FromDTO(&blockDTO)
 
 	if (block.Hash == common.Hash{}) && *hash != "" {
 		block.Hash = common.HexToHash(*hash)
@@ -70,7 +71,7 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		block.Header.Number = *number
 	}
 
-	if err := bps.publisher.PublishBlock(&block); err != nil {
+	if err := bps.publisher.PublishBlock(block); err != nil {
 		bps.log.Error("failed to publish block", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
 		return apperr.NewBlockProcessErr("failed to publish block", err)
 	}
@@ -93,6 +94,7 @@ func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
 	if strMsgNum == "" {
 		return nil, nil, nil, apperr.NewBlockProcessErr("stream message missing block number", nil)
 	}
@@ -106,6 +108,7 @@ func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {
 	if err != nil {
 		return nil, nil, nil, err
 	}
+
 	if payload == "" {
 		return nil, nil, nil, apperr.NewBlockProcessErr("stream message missing block payload", nil)
 	}

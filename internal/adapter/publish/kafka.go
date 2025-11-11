@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"net"
 	"strconv"
 	"time"
@@ -95,7 +96,7 @@ func (kp *KafkaPublisher) PublishBlock(block *entity.Block) error {
 		return apperr.NewInvalidArgErr("block is required", nil)
 	}
 
-	payload, err := json.Marshal(block)
+	payload, err := json.Marshal(usecase.ToDTO(block))
 	if err != nil {
 		kp.log.Error("Failed to marshal block payload", "err", err)
 		return apperr.NewBlockStreamErr("failed to marshal block payload", err)
