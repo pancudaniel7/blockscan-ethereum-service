@@ -22,10 +22,10 @@ func InitScanner(log applog.AppLogger, wg *sync.WaitGroup, v *validator.Validate
 	}
 
 	cfg := scan.Config{
-		WebSocketsURL:          viper.GetString("scan.websocket_url"),
-		FinalizedBlocks:        viper.GetBool("scan.finalized_blocks"),
-		FinalizedPollDelay:     uint64(viper.GetInt("scan.finalized_poll_delay")),
-		FinalizedConfirmations: uint64(viper.GetInt("scan.finalized_confirmations")),
+		WebSocketsURL:          viper.GetString("scanner.websocket_url"),
+		FinalizedBlocks:        viper.GetBool("scanner.finalized_blocks"),
+		FinalizedPollDelay:     uint64(viper.GetInt("scanner.finalized_poll_delay")),
+		FinalizedConfirmations: uint64(viper.GetInt("scanner.finalized_confirmations")),
 	}
 
 	s, err := scan.NewEthereumScanner(log, wg, cfg, v)
