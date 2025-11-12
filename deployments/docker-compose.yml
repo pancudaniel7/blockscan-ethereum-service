@@ -76,6 +76,17 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:19092
       DYNAMIC_CONFIG_ENABLED: "true"
 
+  redis-commander:
+    container_name: redis-commander
+    image: rediscommander/redis-commander:latest
+    networks: [stack]
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports: ["6380:8081"]
+
 networks:
   stack:
     name: blockscan_local_stack
