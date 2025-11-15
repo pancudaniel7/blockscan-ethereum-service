@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/go-playground/validator/v10"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
@@ -22,17 +23,18 @@ import (
 // Use NewEthereumScanner to construct an instance and StartScanning to begin
 // scanning. StopScanning cancels the internal context and stops the scan.
 type EthereumScanner struct {
-    log           applog.AppLogger
-    wg            *sync.WaitGroup
-    config        Config
-    cancel        context.CancelFunc
-    lastProcessed uint64
-    handler       port.BlockHandler
-    mu            sync.Mutex
-    running       bool
+	log           applog.AppLogger
+	wg            *sync.WaitGroup
+	config        Config
+	cancel        context.CancelFunc
+	lastProcessed uint64
+	handler       port.BlockHandler
+	mu            sync.Mutex
+	running       bool
 }
 
 const drainFetchTimeout = 5 * time.Second
+const fetchTimeout = 10 * time.Second
 
 // NewEthereumScanner creates a new EthereumScanner with the given log,
 // wait group and configuration. The log is used for informational and
@@ -59,38 +61,38 @@ func (s *EthereumScanner) SetHandler(handler port.BlockHandler) {
 // StartScanning validates the scan configuration and starts the scanning
 // goroutine. It returns an error if configuration validation fails.
 func (s *EthereumScanner) StartScanning() error {
-    s.mu.Lock()
-    if s.running {
-        s.mu.Unlock()
-        return apperr.NewBlockScanErr("scanner already running", nil)
-    }
-    if s.handler == nil {
-        s.mu.Unlock()
-        return apperr.NewBlockScanErr("block handler is not configured", nil)
-    }
+	s.mu.Lock()
+	if s.running {
+		s.mu.Unlock()
+		return apperr.NewBlockScanErr("scanner already running", nil)
+	}
+	if s.handler == nil {
+		s.mu.Unlock()
+		return apperr.NewBlockScanErr("block handler is not configured", nil)
+	}
 
-    ctx, cancel := context.WithCancel(context.Background())
-    s.cancel = cancel
-    s.running = true
-    s.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	s.running = true
+	s.mu.Unlock()
 
-    s.wg.Add(1)
-    go func() {
-        defer s.wg.Done()
-        defer func() {
-            s.mu.Lock()
-            s.running = false
-            s.cancel = nil
-            s.mu.Unlock()
-        }()
-        if s.config.FinalizedBlocks {
-            s.scanFinalized(ctx)
-        } else {
-            s.scanNewHeads(ctx)
-        }
-    }()
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		defer func() {
+			s.mu.Lock()
+			s.running = false
+			s.cancel = nil
+			s.mu.Unlock()
+		}()
+		if s.config.FinalizedBlocks {
+			s.scanFinalized(ctx)
+		} else {
+			s.scanNewHeads(ctx)
+		}
+	}()
 
-    return nil
+	return nil
 }
 
 // scanNewHeads subscribes to new head events via WebSockets and processes
@@ -201,12 +203,18 @@ func (s *EthereumScanner) scanFinalized(ctx context.Context) {
 
 	pollDelay := time.Duration(s.config.FinalizedPollDelay) * time.Second
 
+	// Preserve backlog across reconnects to avoid skipping heights on transient failures.
+	pendingHeights := make([]uint64, 0)
+	draining := false
+
 outer:
 	for {
 		select {
 		case <-ctx.Done():
-			s.log.Trace("Stopping finalized scan...")
-			return
+			if !draining {
+				s.log.Trace("Stopping finalized scan; will drain pending if any...")
+				draining = true
+			}
 		default:
 		}
 
@@ -221,49 +229,30 @@ outer:
 
 		s.log.Trace("Connected to Ethereum node for finalized polling")
 
-		pendingHeights := make([]uint64, 0)
-		draining := false
-
 		for {
-			if len(pendingHeights) == 0 {
-				select {
-				case <-ctx.Done():
-					if !draining {
-						s.log.Trace("Cancellation received; draining finalized backlog...")
-						draining = true
-					}
-				default:
-				}
-			}
-
+			// Recompute backlog only when empty and not draining.
 			if len(pendingHeights) == 0 && !draining {
-				latest, err := client.BlockNumber(ctx)
+				// Try to read the current finalized head directly; fallback to confirmations math.
+				finalized, err := s.currentFinalizedNumber(ctx, client)
 				if err != nil {
 					if ctx.Err() != nil {
-						s.log.Trace("Stop requested while fetching block number; draining backlog")
+						s.log.Trace("Stop requested while resolving finalized head; entering drain if needed")
 						draining = true
-						continue
+					} else {
+						s.log.Warn("Failed to resolve finalized head; reconnecting", "err", err)
+						client.Close()
+						continue outer
 					}
-					s.log.Error("Failed to get latest block number", "err", err)
-					client.Close()
-					continue outer
-				}
-
-				if latest < s.config.FinalizedConfirmations {
-					s.log.Warn("Waiting for finalization window", "height", latest, "confirmations", s.config.FinalizedConfirmations)
-					time.Sleep(5 * time.Second)
-					continue
-				}
-
-				finalized := latest - s.config.FinalizedConfirmations
-				next := s.lastProcessed + 1
-				if s.lastProcessed == 0 {
-					// On the first run, start at the current finalized tip to avoid replaying a large backlog
-					next = finalized
-				}
-				if next <= finalized {
-					for h := next; h <= finalized; h++ {
-						pendingHeights = append(pendingHeights, h)
+				} else {
+					next := s.lastProcessed + 1
+					if s.lastProcessed == 0 {
+						// On the first run, start at the current finalized tip to avoid replaying a large backlog
+						next = finalized
+					}
+					if next <= finalized {
+						for h := next; h <= finalized; h++ {
+							pendingHeights = append(pendingHeights, h)
+						}
 					}
 				}
 			}
@@ -274,30 +263,45 @@ outer:
 					client.Close()
 					return
 				}
-				time.Sleep(pollDelay)
-				continue
+				// Wait for the next poll or cancellation.
+				select {
+				case <-ctx.Done():
+					if !draining {
+						s.log.Trace("Cancellation received during idle; start draining")
+						draining = true
+					}
+					continue
+				case <-time.After(pollDelay):
+					continue
+				}
 			}
 
 			height := pendingHeights[0]
-			pendingHeights = pendingHeights[1:]
 
-			fetchCtx := ctx
-			var cancelFetch context.CancelFunc
+			// Use timeouts for RPC fetches to avoid hanging on shutdown or network stalls.
+			var (
+				fetchCtx    context.Context
+				cancelFetch context.CancelFunc
+				effectiveTO = fetchTimeout
+			)
 			if draining {
-				fetchCtx, cancelFetch = context.WithTimeout(context.Background(), drainFetchTimeout)
+				effectiveTO = drainFetchTimeout
 			}
-
+			fetchCtx, cancelFetch = context.WithTimeout(context.Background(), effectiveTO)
 			blk, err := client.BlockByNumber(fetchCtx, new(big.Int).SetUint64(height))
-			if cancelFetch != nil {
-				cancelFetch()
-			}
+			cancelFetch()
 			if err != nil {
 				if ctx.Err() != nil {
 					s.log.Trace("Context canceled while fetching finalized block, continuing drain", "height", height)
 					draining = true
-					continue
+
+					// Do not drop the height; retry after reconnect
+					client.Close()
+					continue outer
 				}
-				s.log.Error("Failed to fetch finalized block", "height", height, "err", err)
+				s.log.Warn("Failed to fetch finalized block; will reconnect and retry", "height", height, "err", err)
+
+				// Keep the height in the queue and reconnect
 				client.Close()
 				continue outer
 			}
@@ -305,35 +309,59 @@ outer:
 			s.log.Trace("Scanned finalized block", "number", blk.NumberU64(), "txs", len(blk.Transactions()))
 			if err := s.handler(ctx, blk); err != nil {
 				s.log.Error("Block handler failed (finalized)", "number", blk.NumberU64(), "err", err)
-				continue
+				// Drop the block to avoid infinite retry loop; lastProcessed is not advanced
+			} else {
+				s.lastProcessed = height
 			}
-			s.lastProcessed = height
 
-			if draining && len(pendingHeights) == 0 {
-				s.log.Trace("Finalized backlog drained; closing client")
-				client.Close()
-				return
-			}
+			// Pop the processed height from the backlog
+			pendingHeights = pendingHeights[1:]
 		}
 	}
+}
+
+// currentFinalizedNumber returns the current finalized block height using the
+// RPC 'finalized' tag when available. If the node does not support the tag
+// (or returns an error), it falls back to `latest - confirmations`.
+func (s *EthereumScanner) currentFinalizedNumber(ctx context.Context, client *ethclient.Client) (uint64, error) {
+	// Try the canonical 'finalized' tag first.
+	header, err := client.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
+	if err == nil && header != nil {
+		return header.Number.Uint64(), nil
+	}
+
+	// Fallback to latest-confirmations if configured.
+	latest, lerr := client.BlockNumber(ctx)
+	if lerr != nil {
+		if err != nil {
+			// Prefer the original error if both failed.
+			return 0, err
+		}
+		return 0, lerr
+	}
+	if latest < s.config.FinalizedConfirmations {
+		// Not enough chain height to satisfy the confirmation window yet
+		return 0, apperr.NewBlockScanErr("finalization window not yet available", nil)
+	}
+	return latest - s.config.FinalizedConfirmations, nil
 }
 
 // StopScanning cancels the scan's internal context (if any), which causes
 // the scanning goroutine to exit gracefully.
 func (s *EthereumScanner) StopScanning() {
-    s.mu.Lock()
-    if s.cancel == nil {
-        s.mu.Unlock()
-        s.log.Trace("Ethereum scanning stopped")
-        return
-    }
-    cancel := s.cancel
-    s.cancel = nil
-    s.mu.Unlock()
+	s.mu.Lock()
+	if s.cancel == nil {
+		s.mu.Unlock()
+		s.log.Trace("Ethereum scanning stopped")
+		return
+	}
+	cancel := s.cancel
+	s.cancel = nil
+	s.mu.Unlock()
 
-    s.log.Trace("Cancelling Ethereum scanning...")
-    cancel()
-    s.log.Trace("Ethereum scanning stopped")
+	s.log.Trace("Cancelling Ethereum scanning...")
+	cancel()
+	s.log.Trace("Ethereum scanning stopped")
 }
 
 // connectClient dials to the Ethereum node with exponential backoff and jitter
