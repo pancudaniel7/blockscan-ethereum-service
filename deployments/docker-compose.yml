@@ -1,7 +1,7 @@
 services:
   redis:
     container_name: redis
-    image: redis:7.2.4
+    image: redis:8.2.3
     networks: [stack]
     ports: ["6379:6379"]
     healthcheck:
@@ -12,7 +12,7 @@ services:
 
   redis-provisioner:
     container_name: redis-provisioner
-    image: redis:7.2.4
+    image: redis:8.2.3
     networks: [stack]
     depends_on:
       redis:
