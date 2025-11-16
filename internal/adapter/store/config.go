@@ -39,9 +39,18 @@ type StreamConfig struct {
 
 // LockConfig encapsulates options for the deduplication lock used by the Lua script.
 type LockConfig struct {
-	// DedupPrefix is the prefix used for the idempotency SET key (e.g., "block").
-	DedupPrefix string `validate:"required"`
+    // DedupPrefix is the prefix used for the idempotency SET key (e.g., "block").
+    DedupPrefix string `validate:"required"`
 
-	// BlockTTLSeconds is the TTL for the dedup key.
-	BlockTTLSeconds int `validate:"required,gte=1"`
+    // BlockTTLSeconds is the TTL for the dedup key.
+    BlockTTLSeconds int `validate:"required,gte=1"`
+
+    // DedupPublishBlockPrefix is the key prefix used for the durable
+    // "published" marker that prevents re-publishing the same block hash
+    // after a crash/retry (effectively-once semantics across restarts).
+    DedupPublishBlockPrefix string `validate:"required"`
+
+    // PublishBlockTTLSeconds is the TTL applied to the durable "published"
+    // marker keys. A value of 0 means no expiration (keys persist).
+    PublishBlockTTLSeconds int `validate:"gte=0"`
 }

@@ -1,13 +1,13 @@
 package store
 
 import (
-	"context"
-	"crypto/tls"
-	"errors"
-	"net"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "crypto/tls"
+    "errors"
+    "net"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
@@ -257,23 +257,31 @@ func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
 // Returns nil when the backlog is empty, context errors to stop the reader,
 // or any other error encountered during the read.
 func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, readCount int) error {
-	for {
-		streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group:    bs.cfg.Streams.ConsumerGroup,
-			Consumer: consumerName,
-			Streams:  []string{bs.cfg.Streams.Key, "0"},
-			Count:    int64(readCount),
-			Block:    -1, // omit BLOCK so this call is non-blocking
-		}).Result()
-		if err != nil {
-			if errors.Is(err, redis.Nil) {
-				return nil
-			}
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
-			return err
-		}
+    for {
+        streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+            Group:    bs.cfg.Streams.ConsumerGroup,
+            Consumer: consumerName,
+            Streams:  []string{bs.cfg.Streams.Key, "0"},
+            Count:    int64(readCount),
+            // Non-blocking read of this consumer's pending entries: omit BLOCK.
+            Block:    0,
+        }).Result()
+        if err != nil {
+            // If the consumer group or stream is missing, try to recreate it and continue.
+            if isNoGroupErr(err) {
+                if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
+                    return gerr
+                }
+                continue
+            }
+            if errors.Is(err, redis.Nil) {
+                return nil
+            }
+            if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+                return err
+            }
+            return err
+        }
 		if len(streams) == 0 || len(streams[0].Messages) == 0 {
 			return nil
 		}
@@ -289,19 +297,27 @@ func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, re
 // pending on other consumers longer than minIdle. It processes messages and
 // stops when the claim cursor is exhausted.
 func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, readCount int, minIdle time.Duration) error {
-	start := "0-0"
-	for {
-		msgs, next, err := bs.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
-			Stream:   bs.cfg.Streams.Key,
-			Group:    bs.cfg.Streams.ConsumerGroup,
-			Consumer: consumerName,
-			MinIdle:  minIdle,
-			Start:    start,
-			Count:    int64(readCount),
-		}).Result()
-		if err != nil {
-			return err
-		}
+    start := "0-0"
+    for {
+        msgs, next, err := bs.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+            Stream:   bs.cfg.Streams.Key,
+            Group:    bs.cfg.Streams.ConsumerGroup,
+            Consumer: consumerName,
+            MinIdle:  minIdle,
+            Start:    start,
+            Count:    int64(readCount),
+        }).Result()
+        if err != nil {
+            if isNoGroupErr(err) {
+                if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
+                    return gerr
+                }
+                // restart claiming from beginning after group recreation
+                start = "0-0"
+                continue
+            }
+            return err
+        }
 		for _, m := range msgs {
 			bs.processMessage(m)
 		}
@@ -316,16 +332,22 @@ func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, re
 // and processes them when available. Returns redis.Nil when no messages were
 // delivered in the given timeout.
 func (bs *BlockStream) readNew(ctx context.Context, consumerName string, readCount int, blockTimeout time.Duration) error {
-	streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-		Group:    bs.cfg.Streams.ConsumerGroup,
-		Consumer: consumerName,
-		Streams:  []string{bs.cfg.Streams.Key, ">"},
-		Count:    int64(readCount),
-		Block:    blockTimeout,
-	}).Result()
-	if err != nil {
-		return err
-	}
+    streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+        Group:    bs.cfg.Streams.ConsumerGroup,
+        Consumer: consumerName,
+        Streams:  []string{bs.cfg.Streams.Key, ">"},
+        Count:    int64(readCount),
+        Block:    blockTimeout,
+    }).Result()
+    if err != nil {
+        if isNoGroupErr(err) {
+            if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
+                return gerr
+            }
+            return nil
+        }
+        return err
+    }
 	for _, s := range streams {
 		for _, m := range s.Messages {
 			bs.processMessage(m)
@@ -365,4 +387,13 @@ func (bs *BlockStream) ackMessage(id string) {
 		pattern.WithMaxDelay(500*time.Millisecond),
 		pattern.WithShouldRetry(shouldRetry),
 	)
+}
+
+// isNoGroupErr detects Redis stream consumer group errors (NOGROUP) to allow
+// the reader to self-heal by recreating the group when it is missing.
+func isNoGroupErr(err error) bool {
+    if err == nil {
+        return false
+    }
+    return strings.Contains(strings.ToUpper(err.Error()), "NOGROUP")
 }

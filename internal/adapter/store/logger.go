@@ -165,3 +165,58 @@ func clusterHashTag(key string) string {
 	}
 	return key
 }
+
+// StorePublishedBlockHash writes a durable marker in Redis indicating that a
+// block with the given hash has been successfully published to Kafka. Call this
+// after a successful publication and before acknowledging the Redis stream message
+// to achieve effectively once the semantics across a process crashes.
+//
+// It stores the marker under a key co-located with the stream's hash slot
+// (e.g., "{blocks}:published:<hash>") using SET NX with an optional TTL. The
+// return value is true when the key was created (first time) and false when the
+// key already existed.
+func (bs *BlockLogger) StorePublishedBlockHash(ctx context.Context, blockHash string) (bool, error) {
+	if strings.TrimSpace(blockHash) == "" {
+		return false, apperr.NewBlockStoreErr("empty block hash", nil)
+	}
+
+	tag := clusterHashTag(bs.cfg.Streams.Key)
+	prefix := bs.cfg.Lock.DedupPublishBlockPrefix
+	key := fmt.Sprintf("{%s}:%s:%s", tag, prefix, blockHash)
+
+	ttlSeconds := bs.cfg.Lock.PublishBlockTTLSeconds
+	var ttl time.Duration
+	if ttlSeconds > 0 {
+		ttl = time.Duration(ttlSeconds) * time.Second
+	} else {
+		ttl = 0
+	}
+
+	created, err := bs.rdb.SetNX(ctx, key, "1", ttl).Result()
+	if err != nil {
+		return false, apperr.NewBlockStoreErr("failed to store published marker", err)
+	}
+
+	if created {
+		bs.log.Trace("Stored published marker", "key", key)
+	} else {
+		bs.log.Trace("Published marker already exists", "key", key)
+	}
+	return created, nil
+}
+
+// IsBlockPublished checks whether a durable published marker exists for the
+// given block hash. It returns true if the marker exists.
+func (bs *BlockLogger) IsBlockPublished(ctx context.Context, blockHash string) (bool, error) {
+	if strings.TrimSpace(blockHash) == "" {
+		return false, apperr.NewBlockStoreErr("empty block hash", nil)
+	}
+	tag := clusterHashTag(bs.cfg.Streams.Key)
+	prefix := bs.cfg.Lock.DedupPublishBlockPrefix
+	key := fmt.Sprintf("{%s}:%s:%s", tag, prefix, blockHash)
+	n, err := bs.rdb.Exists(ctx, key).Result()
+	if err != nil {
+		return false, apperr.NewBlockStoreErr("failed to check published marker", err)
+	}
+	return n == 1, nil
+}

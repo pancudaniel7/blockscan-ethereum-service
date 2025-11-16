@@ -24,7 +24,9 @@ redis:
     claim_idle_seconds: 30
   lock:
     dedup_prefix: "block"
-    block_ttl_seconds: 180
+    block_ttl_seconds: 300
+    dedup_publish_block_prefix: "published"
+    publish_block_ttl_seconds: 300
 
 scanner:
   websocket_url: "wss://eth-sepolia.g.alchemy.com/v2/Y-1h0QmYaseCVxgHqIyua"

@@ -6,6 +6,7 @@ BOOTSTRAP="${KAFKA_BOOTSTRAP_SERVERS:-kafka:19092}"
 TOPIC="${KAFKA_TOPIC_NAME:-block-upstream-topic}"
 PARTITIONS="${KAFKA_TOPIC_PARTITIONS:-3}"
 REPLICATION="${KAFKA_TOPIC_REPLICATION_FACTOR:-1}"
+TOPIC_CLEANUP_POLICY="${KAFKA_TOPIC_CLEANUP_POLICY:-compact}"
 RETRIES="${KAFKA_PROVISIONER_RETRIES:-60}"
 SLEEP_SECONDS="${KAFKA_PROVISIONER_SLEEP_SECONDS:-2}"
 
@@ -32,15 +33,16 @@ topic_exists() {
 }
 
 create_topic() {
-	echo "Creating Kafka topic '${TOPIC}' (partitions=${PARTITIONS}, replication-factor=${REPLICATION})..."
-	"${BIN_DIR}/kafka-topics.sh" \
-		--bootstrap-server "${BOOTSTRAP}" \
-		--create \
-		--if-not-exists \
-		--topic "${TOPIC}" \
-		--partitions "${PARTITIONS}" \
-		--replication-factor "${REPLICATION}"
-	echo "Kafka topic '${TOPIC}' ensured."
+    echo "Creating Kafka topic '${TOPIC}' (partitions=${PARTITIONS}, replication-factor=${REPLICATION})..."
+    "${BIN_DIR}/kafka-topics.sh" \
+        --bootstrap-server "${BOOTSTRAP}" \
+        --create \
+        --if-not-exists \
+        --topic "${TOPIC}" \
+        --partitions "${PARTITIONS}" \
+        --replication-factor "${REPLICATION}" \
+        --config "cleanup.policy=${TOPIC_CLEANUP_POLICY}"
+    echo "Kafka topic '${TOPIC}' ensured."
 }
 
 wait_for_kafka
