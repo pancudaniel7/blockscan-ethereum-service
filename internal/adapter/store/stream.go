@@ -1,20 +1,20 @@
 package store
 
 import (
-    "context"
-    "crypto/tls"
-    "errors"
-    "net"
-    "strings"
-    "sync"
-    "time"
+	"context"
+	"crypto/tls"
+	"errors"
+	"net"
+	"strings"
+	"sync"
+	"time"
 
-    "github.com/go-playground/validator/v10"
-    "github.com/go-redis/redis/v8"
-    "github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
-    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
-    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
-    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+	"github.com/go-playground/validator/v10"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+	"github.com/redis/go-redis/v9"
 )
 
 // BlockStream encapsulates Redis stream reding new stream block entries.
@@ -84,9 +84,9 @@ func (bs *BlockStream) StartReadFromStream() error {
 	// Config struct is validated in NewBlockStream via go-playground/validator,
 	// so no additional checks for consumer group/name are necessary here.
 
-    // Use configured consumer name. Keeping it stable across restarts allows
-    // draining this consumer's PEL after a crash.
-    consumerName := bs.cfg.Streams.ConsumerName
+	// Use configured consumer name. Keeping it stable across restarts allows
+	// draining this consumer's PEL after a crash.
+	consumerName := bs.cfg.Streams.ConsumerName
 
 	streamCtx, cancel := context.WithCancel(context.Background())
 	bs.cancel = cancel
@@ -274,7 +274,7 @@ func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, re
 			}
 			return err
 		}
-		if len(streams) == 0 {
+		if len(streams) == 0 || len(streams[0].Messages) == 0 {
 			return nil
 		}
 		for _, s := range streams {

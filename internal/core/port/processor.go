@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/go-redis/redis/v8"
+    "github.com/redis/go-redis/v9"
 )
 
 // ProcessorService coordinates the business workflow between scanners, stores, and publishers.

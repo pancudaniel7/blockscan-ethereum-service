@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
-	"github.com/go-redis/redis/v8"
+    "github.com/redis/go-redis/v9"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
