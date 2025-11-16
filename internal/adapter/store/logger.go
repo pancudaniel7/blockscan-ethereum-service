@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/go-playground/validator/v10"
-    "github.com/redis/go-redis/v9"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+	"github.com/redis/go-redis/v9"
 )
 
 // BlockLogger is a thin Redis-based store for publishing block events to a
@@ -75,8 +75,8 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 		return false, apperr.NewBlockStoreErr("failed to marshal block payload", err)
 	}
 
-	// Ensure dedup key hashes to same Redis Cluster slot as the stream key by
-	// embedding the stream's hash tag into the dedup key.
+	// Ensure dedup key hashes to the same Redis Cluster slot as the stream key by
+	// embedding the stream's hashtag into the dedup key.
 	tag := clusterHashTag(bs.cfg.Streams.Key)
 	setKey := fmt.Sprintf("{%s}:%s:%s", tag, bs.cfg.Lock.DedupPrefix, block.Hash.Hex())
 	ttlMs := strconv.FormatInt(int64(bs.cfg.Lock.BlockTTLSeconds*1000), 10)
@@ -148,7 +148,7 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 	return stored, nil
 }
 
-// clusterHashTag extracts the hash tag used by Redis Cluster for a given key.
+// clusterHashTag extracts the hashtag used by Redis Cluster for a given key.
 // If the key contains a {...} substring, returns the text inside the first
 // braces; otherwise returns the full key. Using the returned value inside
 // braces ensures both keys target the same hash slot.
