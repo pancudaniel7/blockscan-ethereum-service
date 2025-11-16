@@ -24,7 +24,7 @@ redis:
     claim_idle_seconds: 60
   lock:
     dedup_prefix: "block"
-    block_ttl_seconds: 60
+    block_ttl_seconds: 180
 
 scanner:
   websocket_url: "wss://eth-sepolia.g.alchemy.com/v2/Y-1h0QmYaseCVxgHqIyua"
@@ -33,7 +33,7 @@ scanner:
   finalized_confirmations: 64
 
 kafka:
-  brokers: ["localhost:19092"]
+  brokers: ["localhost:9092"]
   topic: "block-upstream-topic"
   client_id: "blockscan-local"
   max_retry_attempts: 5
