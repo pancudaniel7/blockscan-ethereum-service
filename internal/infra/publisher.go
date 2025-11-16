@@ -23,6 +23,7 @@ func InitBlockPublisher(logger applog.AppLogger, v *validator.Validate) (port.Pu
 		Brokers:               viper.GetStringSlice("kafka.brokers"),
 		Topic:                 viper.GetString("kafka.topic"),
 		ClientID:              viper.GetString("kafka.client_id"),
+		TransactionalID:       viper.GetString("kafka.transactional_id"),
 		MaxRetryAttempts:      viper.GetInt("kafka.max_retry_attempts"),
 		RetryInitialBackoffMS: viper.GetInt("kafka.retry_initial_backoff_ms"),
 		RetryMaxBackoffMS:     viper.GetInt("kafka.retry_max_backoff_ms"),

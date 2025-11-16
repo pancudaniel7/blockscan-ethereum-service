@@ -36,6 +36,7 @@ kafka:
   brokers: ["localhost:9092"]
   topic: "block-upstream-topic"
   client_id: "blockscan-test"
+  transactional_id: "blockscan-test-tx"
   max_retry_attempts: 3
   retry_initial_backoff_ms: 100
   retry_max_backoff_ms: 1500
