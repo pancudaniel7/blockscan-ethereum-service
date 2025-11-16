@@ -100,8 +100,9 @@ func (bs *BlockStream) StartReadFromStream() error {
 	bs.running = true
 	bs.mu.Unlock()
 
-	// Ensure a consumer group exists (create if missing).
-	if err := bs.ensureConsumerGroup(streamCtx); err != nil {
+	// Ensure a consumer group exists (create if missing) with retry until
+	// the context is canceled. This covers initial Redis availability too.
+	if err := bs.ensureGroupWithRetry(streamCtx); err != nil {
 		cancel()
 		bs.mu.Lock()
 		bs.running = false
@@ -111,13 +112,11 @@ func (bs *BlockStream) StartReadFromStream() error {
 	}
 
 	// Add the stream reader goroutine to the root WaitGroup so shutdown waits
-	// for it to exit. This ensures graceful shutdown: the current message
+	// for it to exit. This ensures a graceful shutdown: the current message
 	// finishes processing and acks before the process terminates.
 	bs.wg.Add(1)
 	go func() {
-		if bs.wg != nil {
-			defer bs.wg.Done()
-		}
+		defer bs.wg.Done()
 		defer func() {
 			bs.mu.Lock()
 			bs.running = false
@@ -206,7 +205,7 @@ func (bs *BlockStream) StopReadFromStream() {
 
 // processMessage invokes the configured handler for the given message and
 // acknowledges it on success. The handler is executed with a background
-// context so the last in-flight message can complete during graceful shutdown.
+// context, so the last in-flight message can be complete during graceful shutdown.
 func (bs *BlockStream) processMessage(msg redis.XMessage) {
 	handler := bs.handler
 	if handler == nil {
@@ -233,6 +232,32 @@ func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
 		return nil
 	}
 	return apperr.NewBlockStreamErr("failed to ensure consumer group", err)
+}
+
+// ensureGroupWithRetry keeps attempting to create/verify the consumer group
+// until it succeeds or the provided context is canceled.
+func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
+	return pattern.Retry(
+		ctx,
+		func(attempt int) error {
+			err := bs.ensureConsumerGroup(ctx)
+			if err != nil {
+				bs.logger.Warn(
+					"Failed to ensure consumer group",
+					"stream", bs.cfg.Streams.Key,
+					"group", bs.cfg.Streams.ConsumerGroup,
+					"attempt", attempt,
+					"err", err,
+				)
+			}
+			return err
+		},
+		pattern.WithInfiniteAttempts(),
+		pattern.WithInitialDelay(500*time.Millisecond),
+		pattern.WithMaxDelay(5*time.Second),
+		pattern.WithMultiplier(2.0),
+		pattern.WithJitter(0.2),
+	)
 }
 
 // drainPending drains this consumer's pending messages without blocking.

@@ -21,7 +21,7 @@ redis:
     consumer_name: "blockstream-test-runner"
     read_count: 1
     read_block_timeout_seconds: 5
-    claim_idle_seconds: 60
+    claim_idle_seconds: 5
   lock:
     dedup_prefix: "block"
     block_ttl_seconds: 180
