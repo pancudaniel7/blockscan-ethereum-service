@@ -1,23 +1,20 @@
 package store
 
 import (
-	"context"
-	"crypto/tls"
-	"errors"
-	"fmt"
-	"net"
-	"os"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "crypto/tls"
+    "errors"
+    "net"
+    "strings"
+    "sync"
+    "time"
 
-	"github.com/go-playground/validator/v10"
-	"github.com/go-redis/redis/v8"
-	"github.com/google/uuid"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+    "github.com/go-playground/validator/v10"
+    "github.com/go-redis/redis/v8"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 )
 
 // BlockStream encapsulates Redis stream reding new stream block entries.
@@ -87,13 +84,9 @@ func (bs *BlockStream) StartReadFromStream() error {
 	// Config struct is validated in NewBlockStream via go-playground/validator,
 	// so no additional checks for consumer group/name are necessary here.
 
-	// Build a unique consumer name: <base>-<hostname>-<short-uuid>
-	host, _ := os.Hostname()
-	short := uuid.NewString()
-	if len(short) > 8 {
-		short = short[:8]
-	}
-	consumerName := fmt.Sprintf("%s-%s-%s", bs.cfg.Streams.ConsumerName, host, short)
+    // Use configured consumer name. Keeping it stable across restarts allows
+    // draining this consumer's PEL after a crash.
+    consumerName := bs.cfg.Streams.ConsumerName
 
 	streamCtx, cancel := context.WithCancel(context.Background())
 	bs.cancel = cancel
