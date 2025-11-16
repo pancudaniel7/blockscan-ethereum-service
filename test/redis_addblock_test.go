@@ -38,9 +38,9 @@ func TestAddBlockFunctionPersistsAndAcknowledgesStreamEntry(t *testing.T) {
 	require.True(t, ok)
 	assert.NotEmpty(t, streamID, "Stream ID should be returned")
 
-    val, err := util.GetValue(rdb, ctx, setKey)
-    require.NoError(t, err)
-    assert.Equal(t, "1", val, "SETNX key should be set to '1'")
+	val, err := util.GetValue(rdb, ctx, setKey)
+	require.NoError(t, err)
+	assert.Equal(t, "1", val, "SETNX key should be set to '1'")
 
 	streamEntries, err := rdb.XRange(ctx, streamKey, "-", "+").Result()
 	require.NoError(t, err)

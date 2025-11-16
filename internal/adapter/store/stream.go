@@ -4,13 +4,16 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/go-redis/redis/v8"
+	"github.com/google/uuid"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
@@ -68,34 +71,37 @@ func (bs *BlockStream) SetHandler(handler port.StreamMessageHandler) {
 	bs.handler = handler
 }
 
+// StartReadFromStream ensures the consumer group exists and starts a goroutine
+// that drains pending messages, reclaims stale ones from failed replicas, and
+// then continuously reads new messages, dispatching each through the handler
+// and acknowledging on success. The consumer name is made unique per process.
 func (bs *BlockStream) StartReadFromStream() error {
 	bs.mu.Lock()
 	if bs.handler == nil {
 		return apperr.NewBlockStreamErr("stream handler is not configured", nil)
 	}
-
 	if bs.running {
 		bs.mu.Unlock()
 		return apperr.NewBlockStreamErr("block stream reader already running", nil)
 	}
+	// Config struct is validated in NewBlockStream via go-playground/validator,
+	// so no additional checks for consumer group/name are necessary here.
 
-	if bs.cfg.Streams.ConsumerGroup == "" || bs.cfg.Streams.ConsumerName == "" {
-		bs.mu.Unlock()
-		return apperr.NewBlockStreamErr("consumer group and consumer name must be configured", nil)
+	// Build a unique consumer name: <base>-<hostname>-<short-uuid>
+	host, _ := os.Hostname()
+	short := uuid.NewString()
+	if len(short) > 8 {
+		short = short[:8]
 	}
-
-	handler := bs.handler
-	if handler == nil {
-		bs.mu.Unlock()
-		return apperr.NewBlockStreamErr("stream handler is not configured", nil)
-	}
+	consumerName := fmt.Sprintf("%s-%s-%s", bs.cfg.Streams.ConsumerName, host, short)
 
 	streamCtx, cancel := context.WithCancel(context.Background())
 	bs.cancel = cancel
 	bs.running = true
 	bs.mu.Unlock()
 
-	if err := bs.ensureGroupWithRetry(streamCtx); err != nil {
+	// Ensure a consumer group exists (create if missing).
+	if err := bs.ensureConsumerGroup(streamCtx); err != nil {
 		cancel()
 		bs.mu.Lock()
 		bs.running = false
@@ -104,6 +110,9 @@ func (bs *BlockStream) StartReadFromStream() error {
 		return err
 	}
 
+	// Add the stream reader goroutine to the root WaitGroup so shutdown waits
+	// for it to exit. This ensures graceful shutdown: the current message
+	// finishes processing and acks before the process terminates.
 	bs.wg.Add(1)
 	go func() {
 		if bs.wg != nil {
@@ -117,34 +126,108 @@ func (bs *BlockStream) StartReadFromStream() error {
 			bs.logger.Trace("Stopped reading from Redis stream", "stream", bs.cfg.Streams.Key)
 		}()
 
-		bs.runReader(streamCtx, handler)
+		// Ack handled via bs.ackMessage method.
+		readCount := bs.cfg.Streams.ReadCount
+		blockTimeout := time.Duration(bs.cfg.Streams.ReadBlockTimeoutSeconds) * time.Second
+		claimIdle := time.Duration(bs.cfg.Streams.ClaimIdleSeconds) * time.Second
+
+		bs.logger.Trace(
+			"Starting Redis stream reader",
+			"stream", bs.cfg.Streams.Key,
+			"group", bs.cfg.Streams.ConsumerGroup,
+			"consumer", consumerName,
+			"count", readCount,
+		)
+
+		// processMessage moved to a helper to keep this loop concise.
+		for {
+			// Exit promptly if asked to stop (after the current message finishes).
+			select {
+			case <-streamCtx.Done():
+				bs.logger.Trace("Stream context cancelled, shutting down reader", "stream", bs.cfg.Streams.Key)
+				return
+			default:
+			}
+
+			// 1) Drain this consumer's pending messages (non-blocking)
+			if err := bs.drainPending(streamCtx, consumerName, readCount); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
+				if !errors.Is(err, redis.Nil) {
+					bs.logger.Warn("Failed to drain pending messages", "stream", bs.cfg.Streams.Key, "err", err)
+				}
+				time.Sleep(500 * time.Millisecond)
+				continue
+			}
+
+			// 2) Reclaim stale messages from other consumers (failover)
+			if claimIdle > 0 {
+				if err := bs.reclaimStale(streamCtx, consumerName, readCount, claimIdle); err != nil {
+					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+						return
+					}
+					bs.logger.Warn("Failed to reclaim stale messages", "stream", bs.cfg.Streams.Key, "err", err)
+					time.Sleep(500 * time.Millisecond)
+					continue
+				}
+			}
+
+			// 3) Read new messages (blocking with timeout)
+			if err := bs.readNew(streamCtx, consumerName, readCount, blockTimeout); err != nil {
+				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
+				if !errors.Is(err, redis.Nil) {
+					bs.logger.Warn("Failed to read new messages", "stream", bs.cfg.Streams.Key, "err", err)
+				}
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
+		}
 	}()
 
 	return nil
 }
 
+// StopReadFromStream signals the StartReadFromStream goroutine to stop.
 func (bs *BlockStream) StopReadFromStream() {
 	bs.mu.Lock()
 	if bs.cancel == nil {
 		bs.mu.Unlock()
 		return
 	}
-
 	cancel := bs.cancel
 	bs.cancel = nil
 	bs.mu.Unlock()
-
 	bs.logger.Trace("Stopping Redis stream reader...", "stream", bs.cfg.Streams.Key)
 	cancel()
 }
 
+// processMessage invokes the configured handler for the given message and
+// acknowledges it on success. The handler is executed with a background
+// context so the last in-flight message can complete during graceful shutdown.
+func (bs *BlockStream) processMessage(msg redis.XMessage) {
+	handler := bs.handler
+	if handler == nil {
+		return
+	}
+	if err := handler(context.Background(), msg); err != nil {
+		bs.logger.Error("Stream handler failed", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
+		// Leave unacked; it remains pending for re-consume.
+		return
+	}
+	bs.ackMessage(msg.ID)
+}
+
+// ensureConsumerGroup creates the consumer group if it does not exist. It is
+// safe to call concurrently and idempotently initializes the stream key.
 func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
 	err := bs.rdb.XGroupCreateMkStream(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, "0").Err()
 	if err == nil {
 		bs.logger.Trace("Created Redis consumer group", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
 		return nil
 	}
-
 	if strings.Contains(err.Error(), "BUSYGROUP") {
 		bs.logger.Warn("Redis consumer group already exists", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
 		return nil
@@ -152,159 +235,58 @@ func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
 	return apperr.NewBlockStreamErr("failed to ensure consumer group", err)
 }
 
-func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
-	return pattern.Retry(
-		ctx,
-		func(attempt int) error {
-			err := bs.ensureConsumerGroup(ctx)
-			if err != nil {
-				bs.logger.Warn(
-					"Failed to ensure consumer group",
-					"stream", bs.cfg.Streams.Key,
-					"group", bs.cfg.Streams.ConsumerGroup,
-					"attempt", attempt,
-					"err", err,
-				)
-			}
-			return err
-		},
-		pattern.WithInfiniteAttempts(),
-		pattern.WithInitialDelay(500*time.Millisecond),
-		pattern.WithMaxDelay(5*time.Second),
-		pattern.WithMultiplier(2.0),
-		pattern.WithJitter(0.2),
-	)
-}
-
-func (bs *BlockStream) runReader(ctx context.Context, handler port.StreamMessageHandler) {
-	readCount := bs.cfg.Streams.ReadCount
-	if readCount <= 0 {
-		readCount = 1
-	}
-
-	blockTimeout := time.Duration(bs.cfg.Streams.ReadBlockTimeoutSeconds) * time.Second
-	if blockTimeout <= 0 {
-		blockTimeout = 5 * time.Second
-	}
-
-	pendingArgs := &redis.XReadGroupArgs{
-		Group:    bs.cfg.Streams.ConsumerGroup,
-		Consumer: bs.cfg.Streams.ConsumerName,
-		Streams:  []string{bs.cfg.Streams.Key, "0"},
-		Count:    int64(readCount),
-		Block:    0,
-	}
-	activeArgs := &redis.XReadGroupArgs{
-		Group:    bs.cfg.Streams.ConsumerGroup,
-		Consumer: bs.cfg.Streams.ConsumerName,
-		Streams:  []string{bs.cfg.Streams.Key, ">"},
-		Count:    int64(readCount),
-		Block:    blockTimeout,
-	}
-
-	claimIdle := time.Duration(bs.cfg.Streams.ClaimIdleSeconds) * time.Second
-
-	bs.logger.Trace(
-		"Starting Redis stream reader",
-		"stream", bs.cfg.Streams.Key,
-		"group", bs.cfg.Streams.ConsumerGroup,
-		"consumer", bs.cfg.Streams.ConsumerName,
-		"count", readCount,
-	)
-
+// drainPending drains this consumer's pending messages without blocking.
+// Returns nil when the backlog is empty, context errors to stop the reader,
+// or any other error encountered during the read.
+func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, readCount int) error {
 	for {
-		select {
-		case <-ctx.Done():
-			bs.logger.Trace("Stream context cancelled, shutting down reader", "stream", bs.cfg.Streams.Key)
-			return
-		default:
-		}
-
-		if err := bs.consumeMessages(ctx, pendingArgs, handler, true); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
-			if !errors.Is(err, redis.Nil) {
-				bs.logger.Warn("Failed to drain pending messages", "stream", bs.cfg.Streams.Key, "err", err)
-			}
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
-
-		if claimIdle > 0 {
-			if err := bs.claimStaleMessages(ctx, handler, claimIdle, int64(readCount)); err != nil {
-				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-					return
-				}
-				bs.logger.Warn("Failed to reclaim stale messages", "stream", bs.cfg.Streams.Key, "err", err)
-				time.Sleep(500 * time.Millisecond)
-				continue
-			}
-		}
-
-		if err := bs.consumeMessages(ctx, activeArgs, handler, false); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return
-			}
-			if !errors.Is(err, redis.Nil) {
-				bs.logger.Warn("Failed to read new messages", "stream", bs.cfg.Streams.Key, "err", err)
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-	}
-}
-
-func (bs *BlockStream) consumeMessages(ctx context.Context, args *redis.XReadGroupArgs, handler port.StreamMessageHandler, drainPending bool) error {
-	for {
-		streams, err := bs.rdb.XReadGroup(ctx, args).Result()
+		streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+			Group:    bs.cfg.Streams.ConsumerGroup,
+			Consumer: consumerName,
+			Streams:  []string{bs.cfg.Streams.Key, "0"},
+			Count:    int64(readCount),
+			Block:    -1, // omit BLOCK so this call is non-blocking
+		}).Result()
 		if err != nil {
 			if errors.Is(err, redis.Nil) {
 				return nil
 			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return err
+			}
 			return err
 		}
-
 		if len(streams) == 0 {
-			if drainPending {
-				return nil
+			return nil
+		}
+		for _, s := range streams {
+			for _, m := range s.Messages {
+				bs.processMessage(m)
 			}
-			continue
 		}
-
-		bs.dispatchMessages(ctx, streams, handler)
-		if drainPending {
-			continue
-		}
-		return nil
 	}
 }
 
-func (bs *BlockStream) claimStaleMessages(ctx context.Context, handler port.StreamMessageHandler, minIdle time.Duration, count int64) error {
+// reclaimStale uses XAUTOCLAIM to take ownership of messages that have been
+// pending on other consumers longer than minIdle. It processes messages and
+// stops when the claim cursor is exhausted.
+func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, readCount int, minIdle time.Duration) error {
 	start := "0-0"
-
 	for {
 		msgs, next, err := bs.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
 			Stream:   bs.cfg.Streams.Key,
 			Group:    bs.cfg.Streams.ConsumerGroup,
-			Consumer: bs.cfg.Streams.ConsumerName,
+			Consumer: consumerName,
 			MinIdle:  minIdle,
 			Start:    start,
-			Count:    count,
+			Count:    int64(readCount),
 		}).Result()
 		if err != nil {
 			return err
 		}
-
-		for _, msg := range msgs {
-			if err := handler(ctx, msg); err != nil {
-				bs.logger.Error("Handler failed for claimed message", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
-				continue
-			}
-			if err := bs.ackMessage(ctx, msg.ID); err != nil {
-				bs.logger.Error("Failed to ack claimed message", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
-			}
+		for _, m := range msgs {
+			bs.processMessage(m)
 		}
-
 		if len(msgs) == 0 || next == "" || next == start {
 			return nil
 		}
@@ -312,23 +294,32 @@ func (bs *BlockStream) claimStaleMessages(ctx context.Context, handler port.Stre
 	}
 }
 
-func (bs *BlockStream) dispatchMessages(ctx context.Context, streams []redis.XStream, handler port.StreamMessageHandler) {
-	for _, stream := range streams {
-		for _, message := range stream.Messages {
-			if err := handler(ctx, message); err != nil {
-				bs.logger.Error("Stream handler failed", "stream", stream.Stream, "id", message.ID, "err", err)
-				continue
-			}
-			if err := bs.ackMessage(ctx, message.ID); err != nil {
-				bs.logger.Error("Failed to acknowledge message", "stream", stream.Stream, "id", message.ID, "err", err)
-			}
+// readNew blocks for up to blockTimeout to read new messages for this consumer
+// and processes them when available. Returns redis.Nil when no messages were
+// delivered in the given timeout.
+func (bs *BlockStream) readNew(ctx context.Context, consumerName string, readCount int, blockTimeout time.Duration) error {
+	streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+		Group:    bs.cfg.Streams.ConsumerGroup,
+		Consumer: consumerName,
+		Streams:  []string{bs.cfg.Streams.Key, ">"},
+		Count:    int64(readCount),
+		Block:    blockTimeout,
+	}).Result()
+	if err != nil {
+		return err
+	}
+	for _, s := range streams {
+		for _, m := range s.Messages {
+			bs.processMessage(m)
 		}
 	}
+	return nil
 }
 
-func (bs *BlockStream) ackMessage(ctx context.Context, messageID string) error {
-	if messageID == "" {
-		return nil
+// ackMessage acknowledges a message by ID with small bounded retries.
+func (bs *BlockStream) ackMessage(id string) {
+	if id == "" {
+		return
 	}
 	shouldRetry := func(err error) bool {
 		if err == nil {
@@ -342,13 +333,12 @@ func (bs *BlockStream) ackMessage(ctx context.Context, messageID string) error {
 		}
 		return true
 	}
-
-	return pattern.Retry(
-		ctx,
+	_ = pattern.Retry(
+		context.Background(),
 		func(attempt int) error {
-			_, err := bs.rdb.XAck(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, messageID).Result()
+			_, err := bs.rdb.XAck(context.Background(), bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, id).Result()
 			if err != nil {
-				bs.logger.Warn("XACK failed", "stream", bs.cfg.Streams.Key, "id", messageID, "attempt", attempt, "err", err)
+				bs.logger.Warn("XACK failed", "stream", bs.cfg.Streams.Key, "id", id, "attempt", attempt, "err", err)
 			}
 			return err
 		},

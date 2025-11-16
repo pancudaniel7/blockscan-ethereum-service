@@ -27,27 +27,27 @@ var (
 )
 
 func initComponents() {
-    var err error
-    blockStoreLogger, err = infra.InitStoreLogger(logger, &wg, valid)
-    if err != nil {
-        panic("Failed to init store logger: " + err.Error())
-    }
+	var err error
+	blockStoreLogger, err = infra.InitStoreLogger(logger, &wg, valid)
+	if err != nil {
+		panic("Failed to init store logger: " + err.Error())
+	}
 
-    blockStreamReader, err = infra.InitBlockStreamReader(logger, &wg, valid)
-    if err != nil {
-        panic("Failed to init block stream: " + err.Error())
-    }
-    blockPublisher, err = infra.InitBlockPublisher(logger, valid)
-    if err != nil {
-        panic("Failed to init block publisher: " + err.Error())
-    }
+	blockStreamReader, err = infra.InitBlockStreamReader(logger, &wg, valid)
+	if err != nil {
+		panic("Failed to init block stream: " + err.Error())
+	}
+	blockPublisher, err = infra.InitBlockPublisher(logger, valid)
+	if err != nil {
+		panic("Failed to init block publisher: " + err.Error())
+	}
 
-    blockScanner, err = infra.InitScanner(logger, &wg, valid)
-    if err != nil {
-        panic("Failed to init block scanner: " + err.Error())
-    }
+	blockScanner, err = infra.InitScanner(logger, &wg, valid)
+	if err != nil {
+		panic("Failed to init block scanner: " + err.Error())
+	}
 
-    blockProcessorService = usecase.NewBlockProcessorService(logger, blockStoreLogger, blockStreamReader, blockPublisher)
+	blockProcessorService = usecase.NewBlockProcessorService(logger, blockStoreLogger, blockStreamReader, blockPublisher)
 
 	blockScanner.SetHandler(blockProcessorService.StoreBlock)
 	blockStreamReader.SetHandler(blockProcessorService.ReadAndPublishBlock)
@@ -65,13 +65,11 @@ func main() {
 
 	// Start stream reader
 	if err := blockStreamReader.StartReadFromStream(); err != nil {
-		logger.Error("Failed to start block stream reader: ", "err", err)
 		panic("Failed to start block stream reader: " + err.Error())
 	}
 
-	// Start block scanner
+	// Start the block scanner
 	if err := blockScanner.StartScanning(); err != nil {
-		logger.Error("Failed to start block scanner: ", "err", err)
 		panic("Failed to start block scanner: " + err.Error())
 	}
 

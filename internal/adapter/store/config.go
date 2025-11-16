@@ -30,7 +30,8 @@ type StreamConfig struct {
 	ReadCount int `validate:"required,gte=1"`
 
 	// ReadBlockTimeoutSeconds sets the blocking timeout used while waiting for new messages.
-	ReadBlockTimeoutSeconds int `validate:"gte=0"`
+	// Must be >= 1s to avoid indefinite blocking or zero timeouts.
+	ReadBlockTimeoutSeconds int `validate:"required,gte=1"`
 
 	// ClaimIdleSeconds controls how long a message can stay pending before being reclaimed.
 	ClaimIdleSeconds int `validate:"gte=0"`
