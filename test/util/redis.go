@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-    "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 )
 
