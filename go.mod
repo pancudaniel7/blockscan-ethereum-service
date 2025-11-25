@@ -13,7 +13,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/kafka v0.40.0
 	github.com/testcontainers/testcontainers-go/modules/redis v0.40.0
 	github.com/twmb/franz-go v1.20.4
-	github.com/twmb/franz-go/pkg/kadm v1.17.1
+	github.com/twmb/franz-go/pkg/kmsg v1.12.0
 )
 
 require (
@@ -95,7 +95,6 @@ require (
 	github.com/tinylib/msgp v1.4.0 // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
 	github.com/tklauser/numcpus v0.6.1 // indirect
-	github.com/twmb/franz-go/pkg/kmsg v1.12.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.65.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
