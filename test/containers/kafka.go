@@ -71,7 +71,7 @@ func (k *KafkaContainer) EnsureTopic(ctx context.Context, name string, partition
     }
     req.Topics = append(req.Topics, t)
 
-    respAny, err := cl.Request(ctx, req)
+    respAny, err := cl.Request(ctx, &req)
     if err != nil {
         return fmt.Errorf("create topics request failed: %w", err)
     }
