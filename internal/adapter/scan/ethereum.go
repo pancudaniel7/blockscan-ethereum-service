@@ -25,7 +25,7 @@ import (
 type EthereumScanner struct {
 	log           applog.AppLogger
 	wg            *sync.WaitGroup
-	config        Config
+	config        *Config
 	cancel        context.CancelFunc
 	lastProcessed uint64
 	handler       port.BlockHandler
@@ -40,7 +40,7 @@ const fetchTimeout = 10 * time.Second
 // wait group and configuration. The log is used for informational and
 // error messages. The provided wait group will be used to track the scan
 // goroutine lifecycle.
-func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg Config, v *validator.Validate) (*EthereumScanner, error) {
+func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg *Config, v *validator.Validate) (*EthereumScanner, error) {
 	if err := v.Struct(cfg); err != nil {
 		log.Error("Invalid cfg", "err", err)
 		return nil, apperr.NewBlockScanErr("Invalid cfg", err)
