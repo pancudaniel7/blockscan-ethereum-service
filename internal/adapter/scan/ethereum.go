@@ -25,7 +25,7 @@ import (
 type EthereumScanner struct {
 	log           applog.AppLogger
 	wg            *sync.WaitGroup
-	config        Config
+	config        *Config
 	cancel        context.CancelFunc
 	lastProcessed uint64
 	handler       port.BlockHandler
@@ -40,7 +40,7 @@ const fetchTimeout = 10 * time.Second
 // wait group and configuration. The log is used for informational and
 // error messages. The provided wait group will be used to track the scan
 // goroutine lifecycle.
-func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg Config, v *validator.Validate) (*EthereumScanner, error) {
+func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg *Config, v *validator.Validate) (*EthereumScanner, error) {
 	if err := v.Struct(cfg); err != nil {
 		log.Error("Invalid cfg", "err", err)
 		return nil, apperr.NewBlockScanErr("Invalid cfg", err)
@@ -126,31 +126,16 @@ outer:
 		}
 
 		s.log.Trace("Subscribed to new Ethereum heads")
-		draining := false
 
 	inner:
 		for {
-			if draining && len(headers) == 0 {
-				s.log.Trace("Drained buffered headers; closing subscription")
+			select {
+			case <-ctx.Done():
 				sub.Unsubscribe()
 				client.Close()
 				return
-			}
-
-			select {
-			case <-ctx.Done():
-				if !draining {
-					s.log.Trace("Cancellation received; draining buffered headers...")
-					draining = true
-				}
 
 			case err := <-sub.Err():
-				if draining {
-					s.log.Trace("Subscription closed while draining", "err", err)
-					sub.Unsubscribe()
-					client.Close()
-					return
-				}
 				s.log.Warn("Subscription error, will reconnect", "err", err)
 				sub.Unsubscribe()
 				client.Close()
@@ -158,34 +143,33 @@ outer:
 
 			case header, ok := <-headers:
 				if !ok {
-					if draining {
-						s.log.Trace("Headers channel drained")
-						sub.Unsubscribe()
-						client.Close()
-						return
-					}
 					s.log.Warn("Headers channel closed — restarting subscription")
 					sub.Unsubscribe()
 					client.Close()
 					break inner
 				}
 
-				blockCtx := ctx
-				var cancelFetch context.CancelFunc
-				if draining {
-					blockCtx, cancelFetch = context.WithTimeout(context.Background(), drainFetchTimeout)
+				// Catch up sequentially from the last processed height to the new head.
+				target := header.Number.Uint64()
+				start := s.lastProcessed + 1
+				if s.lastProcessed == 0 {
+					// First run: begin from the first observed head.
+					start = target
 				}
-				block, err := client.BlockByHash(blockCtx, header.Hash())
-				if cancelFetch != nil {
-					cancelFetch()
-				}
-				if err != nil {
-					s.log.Error("Failed to fetch block by hash", "hash", header.Hash().Hex(), "err", err)
-					continue
-				}
-				s.log.Trace("Scanned block", "number", block.NumberU64(), "txs", len(block.Transactions()))
-				if err := s.handler(ctx, block); err != nil {
-					s.log.Error("Block handler failed (new heads)", "number", block.NumberU64(), "err", err)
+				for h := start; h <= target; h++ {
+					blk, err := s.fetchBlockByNumber(ctx, client, h)
+					if err != nil {
+						s.log.Warn("Failed to fetch block; will reconnect", "number", h, "err", err)
+						sub.Unsubscribe()
+						client.Close()
+						break inner
+					}
+					if err := s.handleBlock(ctx, blk); err != nil {
+						s.log.Error("Block handler failed (new heads); will reconnect", "number", blk.NumberU64(), "err", err)
+						sub.Unsubscribe()
+						client.Close()
+						break inner
+					}
 				}
 			}
 		}
@@ -230,7 +214,7 @@ outer:
 		s.log.Trace("Connected to Ethereum node for finalized polling")
 
 		for {
-			// Recompute backlog only when empty and not draining.
+			// Recompute the backlog only when empty and not draining.
 			if len(pendingHeights) == 0 && !draining {
 				// Try to read the current finalized head directly; fallback to confirmations math.
 				finalized, err := s.currentFinalizedNumber(ctx, client)
@@ -389,4 +373,29 @@ func (s *EthereumScanner) connectClient(ctx context.Context) (*ethclient.Client,
 		return nil, err
 	}
 	return client, nil
+}
+
+// withFetchTimeout returns a context with a timeout for RPC calls.
+func (s *EthereumScanner) withFetchTimeout(parent context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(parent, fetchTimeout)
+}
+
+// fetchBlockByNumber fetches a block by number with a per-call timeout.
+func (s *EthereumScanner) fetchBlockByNumber(ctx context.Context, client *ethclient.Client, number uint64) (*types.Block, error) {
+	fetchCtx, cancel := s.withFetchTimeout(ctx)
+	defer cancel()
+	return client.BlockByNumber(fetchCtx, new(big.Int).SetUint64(number))
+}
+
+// handleBlock invokes the configured handler and advances lastProcessed on success.
+func (s *EthereumScanner) handleBlock(ctx context.Context, blk *types.Block) error {
+	if err := s.handler(ctx, blk); err != nil {
+		return err
+	}
+	n := blk.NumberU64()
+	if n > s.lastProcessed {
+		s.lastProcessed = n
+	}
+	s.log.Trace("Scanned block", "number", n, "txs", len(blk.Transactions()))
+	return nil
 }
