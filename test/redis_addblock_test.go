@@ -12,7 +12,7 @@ import (
 func TestAddBlockFunctionPersistsAndAcknowledgesStreamEntry(t *testing.T) {
 	require.NoError(t, util.InitConfig())
 
-	rdb, err := util.NewRedisClientFromConfig()
+	rdb, err := util.NewRedisClient()
 	require.NoError(t, err)
 	defer func() { _ = rdb.Close() }()
 

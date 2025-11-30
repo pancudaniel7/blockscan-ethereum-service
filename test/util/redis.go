@@ -16,11 +16,7 @@ func Getenv(key, def string) string {
 	return def
 }
 
-func NewRedisClient(host, port string) *redis.Client {
-	return redis.NewClient(&redis.Options{Addr: host + ":" + port})
-}
-
-func NewRedisClientFromConfig() (*redis.Client, error) {
+func NewRedisClient() (*redis.Client, error) {
 
 	return redis.NewClient(&redis.Options{
 		Addr:     viper.GetString("redis.host") + ":" + viper.GetString("redis.port"),
