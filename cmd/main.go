@@ -62,6 +62,7 @@ func main() {
 
 	initComponents()
 	server = infra.StartServer(logger, &wg)
+	infra.InitRoutes(server)
 
 	// Start stream reader
 	if err := blockStreamReader.StartReadFromStream(); err != nil {
