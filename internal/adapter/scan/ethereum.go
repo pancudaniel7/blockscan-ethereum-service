@@ -186,8 +186,6 @@ func (s *EthereumScanner) scanFinalized(ctx context.Context) {
 	s.log.Trace("Scanning finalized Ethereum blocks (polling mode)")
 
 	pollDelay := time.Duration(s.config.FinalizedPollDelay) * time.Second
-
-	// Preserve backlog across reconnects to avoid skipping heights on transient failures.
 	pendingHeights := make([]uint64, 0)
 	draining := false
 
@@ -290,15 +288,23 @@ outer:
 				continue outer
 			}
 
-			s.log.Trace("Scanned finalized block", "number", blk.NumberU64(), "txs", len(blk.Transactions()))
-			if err := s.handler(ctx, blk); err != nil {
-				s.log.Error("Block handler failed (finalized)", "number", blk.NumberU64(), "err", err)
-				// Drop the block to avoid infinite retry loop; lastProcessed is not advanced
-			} else {
-				s.lastProcessed = height
+			// Use a non-canceled context while draining to allow the handler to complete.
+			var handleCtx context.Context = ctx
+			var cancelHandle context.CancelFunc
+			if draining {
+				handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)
+			}
+			if cancelHandle != nil {
+				defer cancelHandle()
+			}
+			if err := s.handleBlock(handleCtx, blk); err != nil {
+				s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
+				// Keep the height in the backlog and reconnect to retry.
+				client.Close()
+				continue outer
 			}
 
-			// Pop the processed height from the backlog
+			// Success: pop from the backlog (lastProcessed updated by handleBlock).
 			pendingHeights = pendingHeights[1:]
 		}
 	}
