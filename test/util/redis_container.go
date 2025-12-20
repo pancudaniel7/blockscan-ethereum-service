@@ -8,6 +8,7 @@ import (
 
 	"github.com/docker/go-connections/nat"
 	redislib "github.com/redis/go-redis/v9"
+	"github.com/spf13/viper"
 	redismodule "github.com/testcontainers/testcontainers-go/modules/redis"
 )
 
@@ -91,4 +92,63 @@ func (r *RedisContainer) Terminate(ctx context.Context) error {
 		return nil
 	}
 	return r.container.Terminate(ctx)
+}
+
+// InitRedisContainer starts a Redis testcontainer, points Viper's redis.{host,port}
+// to it, and loads the add_block Redis function. The caller owns the returned
+// container and should Terminate it when done (e.g., via t.Cleanup).
+func InitRedisContainer(ctx context.Context) (*RedisContainer, error) {
+	rc, err := StartRedis(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("start redis container: %w", err)
+	}
+
+	addr, err := rc.Address(ctx)
+	if err != nil {
+		_ = rc.Terminate(ctx)
+		return nil, fmt.Errorf("redis address: %w", err)
+	}
+
+	// Split host:port without extra deps.
+	host, port := addr, ""
+	for i := len(addr) - 1; i >= 0; i-- {
+		if addr[i] == ':' {
+			host = addr[:i]
+			if i+1 < len(addr) {
+				port = addr[i+1:]
+			}
+			break
+		}
+	}
+	if host == "" || port == "" {
+		_ = rc.Terminate(ctx)
+		return nil, fmt.Errorf("invalid redis address: %q", addr)
+	}
+	viper.Set("redis.host", host)
+	viper.Set("redis.port", port)
+
+	// Locate and load the add_block.lua function into Redis.
+	candidates := []string{
+		"deployments/redis/functions/add_block.lua",
+		"../deployments/redis/functions/add_block.lua",
+		"../../deployments/redis/functions/add_block.lua",
+		"./deployments/redis/functions/add_block.lua",
+	}
+	var functionPath string
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			functionPath = p
+			break
+		}
+	}
+	if functionPath == "" {
+		_ = rc.Terminate(ctx)
+		return nil, fmt.Errorf("redis function file not found in candidates: %v", candidates)
+	}
+	if err := rc.LoadFunctionFromFile(ctx, functionPath); err != nil {
+		_ = rc.Terminate(ctx)
+		return nil, fmt.Errorf("load redis function from %s: %w", functionPath, err)
+	}
+
+	return rc, nil
 }

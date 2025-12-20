@@ -12,11 +12,15 @@ import (
 func TestAddBlockFunctionPersistsAndAcknowledgesStreamEntry(t *testing.T) {
 	require.NoError(t, util.InitConfig())
 
+	// Start an isolated Redis container and load the add_block function.
+	ctx := context.Background()
+	rc, err := util.InitRedisContainer(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = rc.Terminate(context.Background()) })
+
 	rdb, err := util.NewRedisClient()
 	require.NoError(t, err)
 	defer func() { _ = rdb.Close() }()
-
-	ctx := context.Background()
 
 	require.NoError(t, util.FlushDB(rdb, ctx))
 
