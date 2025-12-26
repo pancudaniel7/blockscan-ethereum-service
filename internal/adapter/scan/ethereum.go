@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/rpc"
@@ -31,6 +32,8 @@ type EthereumScanner struct {
 	handler       port.BlockHandler
 	mu            sync.Mutex
 	running       bool
+	newClient     func(context.Context) (ethereumClient, error)
+	dialRetryOpts []pattern.RetryOption
 }
 
 const drainFetchTimeout = 5 * time.Second
@@ -46,11 +49,15 @@ func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg *Config, v
 		return nil, apperr.NewBlockScanErr("Invalid cfg", err)
 	}
 
-	return &EthereumScanner{
+	s := &EthereumScanner{
 		log:    log,
 		wg:     wg,
 		config: cfg,
-	}, nil
+	}
+	s.newClient = func(ctx context.Context) (ethereumClient, error) {
+		return ethclient.DialContext(ctx, cfg.WebSocketsURL)
+	}
+	return s, nil
 }
 
 // SetHandler registers the callback invoked for each fully fetched block.
@@ -313,7 +320,7 @@ outer:
 // currentFinalizedNumber returns the current finalized block height using the
 // RPC 'finalized' tag when available. If the node does not support the tag
 // (or returns an error), it falls back to `latest - confirmations`.
-func (s *EthereumScanner) currentFinalizedNumber(ctx context.Context, client *ethclient.Client) (uint64, error) {
+func (s *EthereumScanner) currentFinalizedNumber(ctx context.Context, client ethereumClient) (uint64, error) {
 	// Try the canonical 'finalized' tag first.
 	header, err := client.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
 	if err == nil && header != nil {
@@ -356,12 +363,25 @@ func (s *EthereumScanner) StopScanning() {
 
 // connectClient dials to the Ethereum node with exponential backoff and jitter
 // until success or context cancellation.
-func (s *EthereumScanner) connectClient(ctx context.Context) (*ethclient.Client, error) {
-	var client *ethclient.Client
+func (s *EthereumScanner) connectClient(ctx context.Context) (ethereumClient, error) {
+	var client ethereumClient
+	opts := []pattern.RetryOption{
+		pattern.WithInfiniteAttempts(),
+		pattern.WithInitialDelay(500 * time.Millisecond),
+		pattern.WithMaxDelay(10 * time.Second),
+		pattern.WithMultiplier(2.0),
+		pattern.WithJitter(0.2),
+	}
+	if len(s.dialRetryOpts) > 0 {
+		opts = append(opts, s.dialRetryOpts...)
+	}
 	err := pattern.Retry(
 		ctx,
 		func(attempt int) error {
-			c, err := ethclient.DialContext(ctx, s.config.WebSocketsURL)
+			if s.newClient == nil {
+				return apperr.NewBlockScanErr("client factory not configured", nil)
+			}
+			c, err := s.newClient(ctx)
 			if err != nil {
 				s.log.Warn("Ethereum dial failed", "attempt", attempt, "err", err)
 				return err
@@ -369,11 +389,7 @@ func (s *EthereumScanner) connectClient(ctx context.Context) (*ethclient.Client,
 			client = c
 			return nil
 		},
-		pattern.WithInfiniteAttempts(),
-		pattern.WithInitialDelay(500*time.Millisecond),
-		pattern.WithMaxDelay(10*time.Second),
-		pattern.WithMultiplier(2.0),
-		pattern.WithJitter(0.2),
+		opts...,
 	)
 	if err != nil {
 		return nil, err
@@ -387,7 +403,7 @@ func (s *EthereumScanner) withFetchTimeout(parent context.Context) (context.Cont
 }
 
 // fetchBlockByNumber fetches a block by number with a per-call timeout.
-func (s *EthereumScanner) fetchBlockByNumber(ctx context.Context, client *ethclient.Client, number uint64) (*types.Block, error) {
+func (s *EthereumScanner) fetchBlockByNumber(ctx context.Context, client ethereumClient, number uint64) (*types.Block, error) {
 	fetchCtx, cancel := s.withFetchTimeout(ctx)
 	defer cancel()
 	return client.BlockByNumber(fetchCtx, new(big.Int).SetUint64(number))
@@ -404,4 +420,12 @@ func (s *EthereumScanner) handleBlock(ctx context.Context, blk *types.Block) err
 	}
 	s.log.Trace("Scanned block", "number", n, "txs", len(blk.Transactions()))
 	return nil
+}
+
+type ethereumClient interface {
+	SubscribeNewHead(context.Context, chan<- *types.Header) (ethereum.Subscription, error)
+	BlockByNumber(context.Context, *big.Int) (*types.Block, error)
+	HeaderByNumber(context.Context, *big.Int) (*types.Header, error)
+	BlockNumber(context.Context) (uint64, error)
+	Close()
 }
