@@ -41,12 +41,12 @@ func TestNewHeadBlockFlow(t *testing.T) {
 			name: "scan and log without duplicates",
 			setup: func(t *testing.T) {
 				name1 := fmt.Sprintf("blockscan-service-test-replica1-%d", time.Now().UnixNano())
-				srvRep1, err := util.InitServiceContainer(name1, "blockscan-service:scan-store-replica", "")
+				srvRep1, err := util.InitServiceContainer(name1, "", "")
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = srvRep1.Terminate(context.Background()) })
 
 				name2 := fmt.Sprintf("blockscan-service-test-replica2-%d", time.Now().UnixNano())
-				srvRep2, err := util.InitServiceContainer(name2, "blockscan-service:scan-store-replica", "")
+				srvRep2, err := util.InitServiceContainer(name2, "", "")
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = srvRep2.Terminate(context.Background()) })
 

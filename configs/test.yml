@@ -2,6 +2,7 @@ service:
   name: "blockscan-service"
   port: 8081
   host: 0.0.0.0
+  image_tag: "blockscan-service:scan-store-replica"
 
 log:
   level: trace

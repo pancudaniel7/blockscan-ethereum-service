@@ -44,35 +44,43 @@ func StartKafka(ctx context.Context, image string) (*KafkaContainer, error) {
 		}
 	}
 	clientPort := nat.Port(fmt.Sprintf("%d/tcp", clientHostPort))
+	env := map[string]string{
+		"KAFKA_NODE_ID":                                          "1",
+		"KAFKA_PROCESS_ROLES":                                    "broker,controller",
+		"KAFKA_LISTENER_SECURITY_PROTOCOL_MAP":                   "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT",
+		"KAFKA_LISTENERS":                                        "CONTROLLER://:29093,PLAINTEXT_HOST://:9092,PLAINTEXT://:19092",
+		"KAFKA_ADVERTISED_LISTENERS":                             fmt.Sprintf("PLAINTEXT_HOST://host.docker.internal:%d,PLAINTEXT://localhost:19092", clientHostPort),
+		"KAFKA_CONTROLLER_LISTENER_NAMES":                        "CONTROLLER",
+		"KAFKA_CONTROLLER_QUORUM_VOTERS":                         "1@localhost:29093",
+		"KAFKA_INTER_BROKER_LISTENER_NAME":                       "PLAINTEXT",
+		"KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR":                 "1",
+		"KAFKA_TRANSACTION_STATE_LOG_MIN_ISR":                    "1",
+		"KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR":         "1",
+		"KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR": "1",
+		"KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR":            "1",
+		"KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS":                 "0",
+		"KAFKA_LOG_DIRS":                                         "/tmp/kraft-combined-logs",
+		"CLUSTER_ID": func() string {
+			c := strings.TrimSpace(viper.GetString("kafka.cluster_id"))
+			if c == "" {
+				return "4L6g3nShT-eMCtK--X86sw"
+			}
+			return c
+		}(),
+	}
+	if overrides := viper.GetStringMapString("kafka.env"); len(overrides) > 0 {
+		for k, v := range overrides {
+			if strings.TrimSpace(k) == "" || strings.TrimSpace(v) == "" {
+				continue
+			}
+			env[k] = v
+		}
+	}
 	req := tc.ContainerRequest{
 		Image:        img,
-		Hostname:     "kafka-test-container",
 		ExposedPorts: []string{string(clientPort)},
-		Env: map[string]string{
-			"KAFKA_NODE_ID":                                          "1",
-			"KAFKA_PROCESS_ROLES":                                    "broker,controller",
-			"KAFKA_LISTENER_SECURITY_PROTOCOL_MAP":                   "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT",
-			"KAFKA_LISTENERS":                                        "CONTROLLER://:29093,PLAINTEXT_HOST://:9092,PLAINTEXT://:19092",
-			"KAFKA_ADVERTISED_LISTENERS":                             fmt.Sprintf("PLAINTEXT_HOST://host.docker.internal:%d,PLAINTEXT://localhost:19092", clientHostPort),
-			"KAFKA_CONTROLLER_LISTENER_NAMES":                        "CONTROLLER",
-			"KAFKA_CONTROLLER_QUORUM_VOTERS":                         "1@localhost:29093",
-			"KAFKA_INTER_BROKER_LISTENER_NAME":                       "PLAINTEXT",
-			"KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR":                 "1",
-			"KAFKA_TRANSACTION_STATE_LOG_MIN_ISR":                    "1",
-			"KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR":         "1",
-			"KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR": "1",
-			"KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR":            "1",
-			"KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS":                 "0",
-			"KAFKA_LOG_DIRS":                                         "/tmp/kraft-combined-logs",
-			"CLUSTER_ID": func() string {
-				c := strings.TrimSpace(viper.GetString("kafka.cluster_id"))
-				if c == "" {
-					return "4L6g3nShT-eMCtK--X86sw"
-				}
-				return c
-			}(),
-		},
-		WaitingFor: wait.ForListeningPort(clientPort),
+		Env:          env,
+		WaitingFor:   wait.ForListeningPort(clientPort),
 	}
 	req.HostConfigModifier = func(hc *dockercfg.HostConfig) {
 		if hc.PortBindings == nil {
@@ -94,10 +102,8 @@ func (k *KafkaContainer) Brokers(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	// derive mapped port using configured host port for stability
 	hostPort := viper.GetInt("kafka.host_port")
 	if hostPort <= 0 {
-		// fallback: parse first broker port or default 9092
 		hostPort = 9092
 		if bs := viper.GetStringSlice("kafka.brokers"); len(bs) > 0 {
 			if i := strings.LastIndexByte(bs[0], ':'); i > 0 {

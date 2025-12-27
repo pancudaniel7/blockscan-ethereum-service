@@ -13,8 +13,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// expose the service port from config (e.g., 8081)
-
 type ServiceContainer struct {
 	container tc.Container
 }
@@ -56,7 +54,6 @@ func BuildAndStartService(ctx context.Context, serviceName, tag, failpoint strin
 	if tag == "" {
 		tag = strings.TrimSpace(viper.GetString("service.image_tag"))
 	}
-	// resolve service port (default to 8081 if missing)
 	svcPort := viper.GetInt("service.port")
 	if svcPort <= 0 {
 		svcPort = 8081
@@ -107,7 +104,6 @@ func (a *ServiceContainer) Socket(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// use configured service port to resolve mapped port
 	svcPort := viper.GetInt("service.port")
 	if svcPort <= 0 {
 		svcPort = 8081
