@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestEthereumScanner_connectClient(t *testing.T) {
+func TestEthereumScannerConnectClient(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -26,13 +26,13 @@ func TestEthereumScanner_connectClient(t *testing.T) {
 		wantErr               bool
 	}{
 		{
-			name:                  "succeeds_after_retries",
+			name:                  "succeeds after retries",
 			attemptsBeforeSuccess: 3,
 			ctxTimeout:            3 * time.Second,
 			wantErr:               false,
 		},
 		{
-			name:                  "context_deadline",
+			name:                  "context deadline",
 			attemptsBeforeSuccess: 100,
 			ctxTimeout:            50 * time.Millisecond,
 			wantErr:               true,
@@ -73,13 +73,13 @@ func TestEthereumScanner_connectClient(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_scanNewHeadsFailures(t *testing.T) {
+func TestEthereumScannerScanNewHeadsFailures(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(t *testing.T, s *EthereumScanner, reconnect chan struct{})
 	}{
 		{
-			name: "subscribe_failure_triggers_reconnect",
+			name: "subscribe failure triggers reconnect",
 			setup: func(t *testing.T, s *EthereumScanner, reconnect chan struct{}) {
 				s.handler = func(context.Context, *types.Block) error { return nil }
 				var connects atomic.Int32
@@ -97,7 +97,7 @@ func TestEthereumScanner_scanNewHeadsFailures(t *testing.T) {
 			},
 		},
 		{
-			name: "block_fetch_failure_forces_reconnect",
+			name: "block fetch failure forces reconnect",
 			setup: func(t *testing.T, s *EthereumScanner, reconnect chan struct{}) {
 				var connects atomic.Int32
 				s.handler = func(context.Context, *types.Block) error { return nil }
@@ -125,7 +125,7 @@ func TestEthereumScanner_scanNewHeadsFailures(t *testing.T) {
 			},
 		},
 		{
-			name: "handler_failure_triggers_reconnect",
+			name: "handler failure triggers reconnect",
 			setup: func(t *testing.T, s *EthereumScanner, reconnect chan struct{}) {
 				var connects atomic.Int32
 				var handled atomic.Bool
@@ -193,7 +193,7 @@ func TestEthereumScanner_scanNewHeadsFailures(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_scanNewHeads_ImmediateCancel(t *testing.T) {
+func TestEthereumScannerScanNewHeadsImmediateCancel(t *testing.T) {
 	t.Parallel()
 	logger := &recordingLogger{}
 	s := &EthereumScanner{log: logger, config: &Config{WebSocketsURL: "ws://ignored"}, handler: func(context.Context, *types.Block) error { return nil }}
@@ -213,7 +213,7 @@ func TestEthereumScanner_scanNewHeads_ImmediateCancel(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_scanNewHeads_SubscriptionErrorChannelReconnects(t *testing.T) {
+func TestEthereumScannerScanNewHeadsSubscriptionErrorChannelReconnects(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored"}
 	s := &EthereumScanner{
@@ -262,7 +262,7 @@ func TestEthereumScanner_scanNewHeads_SubscriptionErrorChannelReconnects(t *test
 	}
 }
 
-func TestEthereumScanner_scanNewHeads_ConnectErrorLogsAndRetries(t *testing.T) {
+func TestEthereumScannerScanNewHeadsConnectErrorLogsAndRetries(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored"}
 	logger := &levelCountingLogger{}
@@ -301,7 +301,7 @@ func TestEthereumScanner_scanNewHeads_ConnectErrorLogsAndRetries(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_scanNewHeads_SequentialCatchUp(t *testing.T) {
+func TestEthereumScannerScanNewHeadsSequentialCatchUp(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored"}
 	s := &EthereumScanner{
@@ -347,13 +347,13 @@ func TestEthereumScanner_scanNewHeads_SequentialCatchUp(t *testing.T) {
 	require.Equal(t, uint64(5), s.lastProcessed)
 }
 
-func TestEthereumScanner_scanFinalized(t *testing.T) {
+func TestEthereumScannerScanFinalized(t *testing.T) {
 	cases := []struct {
 		name  string
 		setup func(t *testing.T, s *EthereumScanner, reconnect chan struct{}, processed chan uint64)
 	}{
 		{
-			name: "block_fetch_failure_then_success",
+			name: "block fetch failure then success",
 			setup: func(t *testing.T, s *EthereumScanner, reconnect chan struct{}, processed chan uint64) {
 				var connects atomic.Int32
 				s.handler = func(_ context.Context, b *types.Block) error {
@@ -384,7 +384,7 @@ func TestEthereumScanner_scanFinalized(t *testing.T) {
 			},
 		},
 		{
-			name: "finalized_head_resolution_error",
+			name: "finalized head resolution error",
 			setup: func(t *testing.T, s *EthereumScanner, reconnect chan struct{}, processed chan uint64) {
 				var connects atomic.Int32
 				s.handler = func(_ context.Context, b *types.Block) error {
@@ -467,7 +467,7 @@ func TestEthereumScanner_scanFinalized(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_scanFinalized_HandlerFailureReconnects(t *testing.T) {
+func TestEthereumScannerScanFinalizedHandlerFailureReconnects(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored", FinalizedBlocks: true, FinalizedPollDelay: 1, FinalizedConfirmations: 1}
 	s := &EthereumScanner{log: noopLogger{}, config: cfg}
@@ -515,7 +515,7 @@ func TestEthereumScanner_scanFinalized_HandlerFailureReconnects(t *testing.T) {
 	<-done
 }
 
-func TestEthereumScanner_scanFinalized_CancelWhileFetching(t *testing.T) {
+func TestEthereumScannerScanFinalizedCancelWhileFetching(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored", FinalizedBlocks: true, FinalizedPollDelay: 1, FinalizedConfirmations: 1}
 	s := &EthereumScanner{log: noopLogger{}, config: cfg}
@@ -549,7 +549,7 @@ func TestEthereumScanner_scanFinalized_CancelWhileFetching(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_scanFinalized_IdlePollThenCancel(t *testing.T) {
+func TestEthereumScannerScanFinalizedIdlePollThenCancel(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored", FinalizedBlocks: true, FinalizedPollDelay: 0, FinalizedConfirmations: 1}
 	s := &EthereumScanner{log: noopLogger{}, config: cfg}
@@ -572,7 +572,7 @@ func TestEthereumScanner_scanFinalized_IdlePollThenCancel(t *testing.T) {
 	<-done
 }
 
-func TestEthereumScanner_scanFinalized_DrainFetchUsesTimeout(t *testing.T) {
+func TestEthereumScannerScanFinalizedDrainFetchUsesTimeout(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored", FinalizedBlocks: true, FinalizedPollDelay: 1, FinalizedConfirmations: 1}
 	s := &EthereumScanner{log: noopLogger{}, config: cfg}
@@ -623,7 +623,7 @@ func TestEthereumScanner_scanFinalized_DrainFetchUsesTimeout(t *testing.T) {
 	require.True(t, hadDeadline.Load())
 }
 
-func TestEthereumScanner_scanFinalized_StopRequestedWhileResolving(t *testing.T) {
+func TestEthereumScannerScanFinalizedStopRequestedWhileResolving(t *testing.T) {
 	t.Parallel()
 	logger := &recordingLogger{}
 	cfg := &Config{WebSocketsURL: "ws://ignored", FinalizedBlocks: true, FinalizedPollDelay: 1, FinalizedConfirmations: 1}
@@ -660,7 +660,7 @@ func TestEthereumScanner_scanFinalized_StopRequestedWhileResolving(t *testing.T)
 	}
 }
 
-func TestEthereumScanner_scanFinalized_ConnectErrorThenSuccess(t *testing.T) {
+func TestEthereumScannerScanFinalizedConnectErrorThenSuccess(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored", FinalizedBlocks: true, FinalizedPollDelay: 1, FinalizedConfirmations: 1}
 	logger := &levelCountingLogger{}
@@ -708,7 +708,7 @@ func TestEthereumScanner_scanFinalized_ConnectErrorThenSuccess(t *testing.T) {
 	require.Greater(t, logger.warns.Load(), int32(0))
 }
 
-func TestEthereumScanner_connectClient_NoFactory(t *testing.T) {
+func TestEthereumScannerConnectClientNoFactory(t *testing.T) {
 	t.Parallel()
 	s := &EthereumScanner{log: noopLogger{}, config: &Config{WebSocketsURL: "ws://ignored"}}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -717,7 +717,7 @@ func TestEthereumScanner_connectClient_NoFactory(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEthereumScanner_fetchBlockByNumber_UsesTimeout(t *testing.T) {
+func TestEthereumScannerFetchBlockByNumberUsesTimeout(t *testing.T) {
 	t.Parallel()
 	s := &EthereumScanner{log: noopLogger{}, config: &Config{WebSocketsURL: "ws://ignored"}}
 	var hadDeadline atomic.Bool
@@ -735,7 +735,7 @@ func TestEthereumScanner_fetchBlockByNumber_UsesTimeout(t *testing.T) {
 	require.True(t, hadDeadline.Load())
 }
 
-func TestEthereumScanner_SetHandler(t *testing.T) {
+func TestEthereumScannerSetHandler(t *testing.T) {
 	t.Parallel()
 	s := &EthereumScanner{}
 	called := atomic.Bool{}
@@ -743,7 +743,7 @@ func TestEthereumScanner_SetHandler(t *testing.T) {
 	require.NotNil(t, s.handler)
 }
 
-func TestNewEthereumScanner_Validation(t *testing.T) {
+func TestNewEthereumScannerValidation(t *testing.T) {
 	t.Parallel()
 	v := validator.New()
 	wg := &sync.WaitGroup{}
@@ -763,7 +763,7 @@ func TestNewEthereumScanner_Validation(t *testing.T) {
 	_, _ = s.newClient(ctx)
 }
 
-func TestEthereumScanner_currentFinalizedNumber(t *testing.T) {
+func TestEthereumScannerCurrentFinalizedNumber(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -774,7 +774,7 @@ func TestEthereumScanner_currentFinalizedNumber(t *testing.T) {
 		wantErr         bool
 	}{
 		{
-			name: "uses_finalized_tag_when_available",
+			name: "uses finalized tag when available",
 			client: &fakeEthereumClient{
 				headerByNumberFn: func(context.Context, *big.Int) (*types.Header, error) {
 					return &types.Header{Number: big.NewInt(77)}, nil
@@ -783,7 +783,7 @@ func TestEthereumScanner_currentFinalizedNumber(t *testing.T) {
 			want: 77,
 		},
 		{
-			name: "falls_back_to_latest_minus_confirmations",
+			name: "falls back to latest minus confirmations",
 			client: &fakeEthereumClient{
 				headerByNumberFn: func(context.Context, *big.Int) (*types.Header, error) {
 					return nil, errors.New("unsupported")
@@ -796,7 +796,7 @@ func TestEthereumScanner_currentFinalizedNumber(t *testing.T) {
 			want:            90,
 		},
 		{
-			name: "fails_when_latest_below_confirmations",
+			name: "fails when latest below confirmations",
 			client: &fakeEthereumClient{
 				headerByNumberFn: func(context.Context, *big.Int) (*types.Header, error) {
 					return nil, errors.New("unsupported")
@@ -809,7 +809,7 @@ func TestEthereumScanner_currentFinalizedNumber(t *testing.T) {
 			wantErr:         true,
 		},
 		{
-			name: "propagates_latest_error_when_finalized_tag_missing",
+			name: "propagates latest error when finalized tag missing",
 			client: &fakeEthereumClient{
 				headerByNumberFn: func(context.Context, *big.Int) (*types.Header, error) {
 					return nil, errors.New("unsupported")
@@ -840,7 +840,7 @@ func TestEthereumScanner_currentFinalizedNumber(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_handleBlock(t *testing.T) {
+func TestEthereumScannerHandleBlock(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -852,13 +852,13 @@ func TestEthereumScanner_handleBlock(t *testing.T) {
 		wantErr       bool
 	}{
 		{
-			name:          "updates_last_processed_on_success",
+			name:          "updates last processed on success",
 			startLastProc: 10,
 			blockNumber:   15,
 			wantLastProc:  15,
 		},
 		{
-			name:          "keeps_last_processed_on_error",
+			name:          "keeps last processed on error",
 			handlerErr:    errors.New("boom"),
 			startLastProc: 20,
 			blockNumber:   30,
@@ -891,7 +891,7 @@ func TestEthereumScanner_handleBlock(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_StartScanning_HandlerMissing(t *testing.T) {
+func TestEthereumScannerStartScanningHandlerMissing(t *testing.T) {
 	t.Parallel()
 	s := &EthereumScanner{
 		log:    noopLogger{},
@@ -903,7 +903,7 @@ func TestEthereumScanner_StartScanning_HandlerMissing(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEthereumScanner_StartScanning_AlreadyRunning(t *testing.T) {
+func TestEthereumScannerStartScanningAlreadyRunning(t *testing.T) {
 	t.Parallel()
 	s := &EthereumScanner{
 		log:     noopLogger{},
@@ -918,7 +918,7 @@ func TestEthereumScanner_StartScanning_AlreadyRunning(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestEthereumScanner_StartScanning_LaunchesNewHeads(t *testing.T) {
+func TestEthereumScannerStartScanningLaunchesNewHeads(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored"}
 	wg := &sync.WaitGroup{}
@@ -977,7 +977,7 @@ func TestEthereumScanner_StartScanning_LaunchesNewHeads(t *testing.T) {
 	require.Nil(t, s.cancel)
 }
 
-func TestEthereumScanner_StartScanning_LaunchesFinalized(t *testing.T) {
+func TestEthereumScannerStartScanningLaunchesFinalized(t *testing.T) {
 	t.Parallel()
 	cfg := &Config{WebSocketsURL: "ws://ignored", FinalizedBlocks: true, FinalizedPollDelay: 1, FinalizedConfirmations: 1}
 	wg := &sync.WaitGroup{}
@@ -1024,7 +1024,7 @@ func TestEthereumScanner_StartScanning_LaunchesFinalized(t *testing.T) {
 	}
 }
 
-func TestEthereumScanner_StopScanning_NoActiveContext(t *testing.T) {
+func TestEthereumScannerStopScanningNoActiveContext(t *testing.T) {
 	t.Parallel()
 	logger := &recordingLogger{}
 	s := &EthereumScanner{
@@ -1036,7 +1036,7 @@ func TestEthereumScanner_StopScanning_NoActiveContext(t *testing.T) {
 	require.Equal(t, []string{"Ethereum scanning stopped"}, logger.messages())
 }
 
-func TestEthereumScanner_StopScanning_CancelsOnce(t *testing.T) {
+func TestEthereumScannerStopScanningCancelsOnce(t *testing.T) {
 	t.Parallel()
 	logger := &recordingLogger{}
 	var canceled atomic.Int32

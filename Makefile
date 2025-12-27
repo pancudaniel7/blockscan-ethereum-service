@@ -9,6 +9,9 @@ COMPOSE_FILE := deployments/docker-compose.yml
 # All packages except the top-level integration tests under ./test
 UNIT_PKGS := $(shell go list ./... | grep -v '/test')
 
+vet:
+	go vet -v ./...
+
 build:
 	go build -v ./...
 
@@ -19,7 +22,7 @@ test:
 unit-test:
 	CONFIG_NAME=test go test -v $(UNIT_PKGS)
 
-integration-test: docker-up
+integration-test:
 	CONFIG_NAME=test go test -v ./test -count=1
 
 run:

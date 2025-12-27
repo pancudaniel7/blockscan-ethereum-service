@@ -4,27 +4,53 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 
+	dockercfg "github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
 	redislib "github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
-	redismodule "github.com/testcontainers/testcontainers-go/modules/redis"
+	tc "github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 // RedisContainer wraps a testcontainers Redis dep and exposes handy helpers.
 type RedisContainer struct {
-	container *redismodule.RedisContainer
+	container tc.Container
 }
 
 // StartRedis launches a Redis dep. Optionally specify a custom image (e.g. "redis:8.2.3").
 func StartRedis(ctx context.Context, image ...string) (*RedisContainer, error) {
-	img := "redis:7"
+	return StartRedisWithPort(ctx, 0, image...)
+}
+
+// StartRedisWithPort starts a Redis container and binds its 6379/tcp to the given hostPort when >0.
+func StartRedisWithPort(ctx context.Context, hostPort int, image ...string) (*RedisContainer, error) {
+	img := "redis:8.4.0"
 	if len(image) > 0 && strings.TrimSpace(image[0]) != "" {
 		img = image[0]
+	} else if v := strings.TrimSpace(viper.GetString("redis.image")); v != "" {
+		img = v
 	}
 
-	ctr, err := redismodule.Run(ctx, img)
+	port := nat.Port("6379/tcp")
+	req := tc.ContainerRequest{
+		Image:        img,
+		ExposedPorts: []string{string(port)},
+		WaitingFor:   wait.ForListeningPort(port),
+	}
+	if hostPort > 0 {
+		req.HostConfigModifier = func(hc *dockercfg.HostConfig) {
+			if hc.PortBindings == nil {
+				hc.PortBindings = nat.PortMap{}
+			}
+			hc.PortBindings[port] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: strconv.Itoa(hostPort)}}
+		}
+	}
+
+	ctr, err := tc.GenericContainer(ctx, tc.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
 		return nil, fmt.Errorf("start redis dep: %w", err)
 	}
@@ -61,7 +87,6 @@ func (r *RedisContainer) LoadFunctionFromFile(ctx context.Context, path string) 
 		return fmt.Errorf("read function file: %w", err)
 	}
 
-	// Normalize newlines (mirror deployments/redis/load_functions.sh behaviour)
 	source := strings.ReplaceAll(string(content), "\r", "")
 
 	cli, err := r.Client(ctx)
@@ -94,11 +119,11 @@ func (r *RedisContainer) Terminate(ctx context.Context) error {
 	return r.container.Terminate(ctx)
 }
 
-// InitRedisContainer starts a Redis testcontainer, points Viper's redis.{host,port}
+// StartRedisContainer starts a Redis testcontainer, points Viper's redis.{host,port}
 // to it, and loads the add_block Redis function. The caller owns the returned
 // container and should Terminate it when done (e.g., via t.Cleanup).
-func InitRedisContainer(ctx context.Context) (*RedisContainer, error) {
-	rc, err := StartRedis(ctx)
+func StartRedisContainer(ctx context.Context) (*RedisContainer, error) {
+	rc, err := StartRedisWithPort(ctx, 0)
 	if err != nil {
 		return nil, fmt.Errorf("start redis container: %w", err)
 	}
@@ -108,16 +133,11 @@ func InitRedisContainer(ctx context.Context) (*RedisContainer, error) {
 		_ = rc.Terminate(ctx)
 		return nil, fmt.Errorf("redis address: %w", err)
 	}
-
-	// Split host:port without extra deps.
 	host, port := addr, ""
-	for i := len(addr) - 1; i >= 0; i-- {
-		if addr[i] == ':' {
-			host = addr[:i]
-			if i+1 < len(addr) {
-				port = addr[i+1:]
-			}
-			break
+	if i := strings.LastIndexByte(addr, ':'); i >= 0 {
+		host = addr[:i]
+		if i+1 < len(addr) {
+			port = addr[i+1:]
 		}
 	}
 	if host == "" || port == "" {
@@ -127,23 +147,23 @@ func InitRedisContainer(ctx context.Context) (*RedisContainer, error) {
 	viper.Set("redis.host", host)
 	viper.Set("redis.port", port)
 
-	// Locate and load the add_block.lua function into Redis.
-	candidates := []string{
-		"deployments/redis/functions/add_block.lua",
-		"../deployments/redis/functions/add_block.lua",
-		"../../deployments/redis/functions/add_block.lua",
-		"./deployments/redis/functions/add_block.lua",
-	}
-	var functionPath string
-	for _, p := range candidates {
+	root, ferr := findRepoRoot()
+	functionPath := ""
+	if ferr == nil {
+		p := filepath.Join(root, "deployments", "redis", "functions", "add_block.lua")
 		if _, err := os.Stat(p); err == nil {
 			functionPath = p
-			break
+		}
+	}
+	if functionPath == "" {
+		fallback := "deployments/redis/functions/add_block.lua"
+		if _, err := os.Stat(fallback); err == nil {
+			functionPath = fallback
 		}
 	}
 	if functionPath == "" {
 		_ = rc.Terminate(ctx)
-		return nil, fmt.Errorf("redis function file not found in candidates: %v", candidates)
+		return nil, fmt.Errorf("redis function file not found")
 	}
 	if err := rc.LoadFunctionFromFile(ctx, functionPath); err != nil {
 		_ = rc.Terminate(ctx)

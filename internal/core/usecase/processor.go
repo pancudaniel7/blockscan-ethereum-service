@@ -1,15 +1,15 @@
 package usecase
 
 import (
-    "context"
-    "strconv"
+	"context"
+	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
-    "github.com/redis/go-redis/v9"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+	"github.com/redis/go-redis/v9"
 )
 
 type BlockProcessorService struct {
@@ -68,29 +68,29 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		block.Header.Number = *number
 	}
 
-    // If this block was already published (e.g., previous run set the
-    // durable marker), skip re-publishing and allow ack to proceed.
-    if ok, err := bps.storeLogger.IsBlockPublished(ctx, block.Hash.Hex()); err != nil {
-        return apperr.NewBlockProcessErr("failed to check published marker", err)
-    } else if ok {
-        bps.log.Trace("Skipping publish; marker exists", "hash", block.Hash.Hex(), "number", block.Header.Number)
-        return nil
-    }
+	// If this block was already published (e.g., previous run set the
+	// durable marker), skip re-publishing and allow ack to proceed.
+	if ok, err := bps.storeLogger.IsBlockPublished(ctx, block.Hash.Hex()); err != nil {
+		return apperr.NewBlockProcessErr("failed to check published marker", err)
+	} else if ok {
+		bps.log.Trace("Skipping publish; marker exists", "hash", block.Hash.Hex(), "number", block.Header.Number)
+		return nil
+	}
 
-    headers := map[string]string{"source-message-id": msg.ID}
-    if err := bps.publisher.PublishBlock(ctx, block, headers); err != nil {
-        bps.log.Error("failed to publish block", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
-        return apperr.NewBlockProcessErr("failed to publish block", err)
-    }
+	headers := map[string]string{"source-message-id": msg.ID}
+	if err := bps.publisher.PublishBlock(ctx, block, headers); err != nil {
+		bps.log.Error("failed to publish block", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
+		return apperr.NewBlockProcessErr("failed to publish block", err)
+	}
 
-    // Record the durable marker before allowing ack to proceed.
-    if _, err := bps.storeLogger.StorePublishedBlockHash(ctx, block.Hash.Hex()); err != nil {
-        bps.log.Error("failed to store published marker", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
-        return apperr.NewBlockProcessErr("failed to store published marker", err)
-    }
+	// Record the durable marker before allowing ack to proceed.
+	if _, err := bps.storeLogger.StorePublishedBlockHash(ctx, block.Hash.Hex()); err != nil {
+		bps.log.Error("failed to store published marker", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
+		return apperr.NewBlockProcessErr("failed to store published marker", err)
+	}
 
-    bps.log.Trace("Published block from Redis stream", "hash", block.Hash.Hex(), "number", block.Header.Number, "message_id", msg.ID)
-    return nil
+	bps.log.Trace("Published block from Redis stream", "hash", block.Hash.Hex(), "number", block.Header.Number, "message_id", msg.ID)
+	return nil
 }
 
 func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {

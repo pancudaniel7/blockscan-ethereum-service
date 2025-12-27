@@ -19,7 +19,7 @@ func NewAppDefaultLogger() *DefaultLogger {
 	levelStr := viper.GetString("log.level")
 	level := parseLogLevel(levelStr)
 	return &DefaultLogger{
-		logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})),
+		logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level, AddSource: true})),
 	}
 }
 

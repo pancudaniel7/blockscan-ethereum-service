@@ -20,6 +20,7 @@
 - Group configuration constants under typed structs and prefer `context.Context` plumbing for cancellable operations.
 - Log through `applogger.Logger` to keep slog configuration centralized instead of instantiating raw loggers.
 - Comments: Do not add comments inside function bodies. Only GoDoc-style comments (above packages, types, functions, methods, or exported vars) are allowed; avoid inline/block comments within functions.
+- Don't format the code using go fmt or any other format tool or command.
 
 ## Testing Guidelines
 - Primary tests live under `test/` and use `stretchr/testify`; name test functions `Test<FeatureScenario>`.

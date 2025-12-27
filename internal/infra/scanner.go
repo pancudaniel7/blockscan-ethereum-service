@@ -21,14 +21,14 @@ func InitScanner(log applog.AppLogger, wg *sync.WaitGroup, v *validator.Validate
 		v = validator.New()
 	}
 
-    cfg := scan.Config{
-        WebSocketsURL:          viper.GetString("scanner.websocket_url"),
-        FinalizedBlocks:        viper.GetBool("scanner.finalized_blocks"),
-        FinalizedPollDelay:     uint64(viper.GetInt("scanner.finalized_poll_delay")),
-        FinalizedConfirmations: uint64(viper.GetInt("scanner.finalized_confirmations")),
-    }
+	cfg := scan.Config{
+		WebSocketsURL:          viper.GetString("scanner.websocket_url"),
+		FinalizedBlocks:        viper.GetBool("scanner.finalized_blocks"),
+		FinalizedPollDelay:     uint64(viper.GetInt("scanner.finalized_poll_delay")),
+		FinalizedConfirmations: uint64(viper.GetInt("scanner.finalized_confirmations")),
+	}
 
-    s, err := scan.NewEthereumScanner(log, wg, &cfg, v)
+	s, err := scan.NewEthereumScanner(log, wg, &cfg, v)
 	if err != nil {
 		return nil, fmt.Errorf("infra: failed to init scan: %w", err)
 	}

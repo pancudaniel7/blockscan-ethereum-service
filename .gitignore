@@ -50,3 +50,4 @@ __debug_bin
 __debug*
 .gomodcache/
 .gocache/
+build/_tmp_whitespace/

@@ -15,9 +15,9 @@ import (
 )
 
 func StartServer(logger applog.AppLogger, wg *sync.WaitGroup) *fiber.App {
-	an := viper.GetString("server.name")
+	an := viper.GetString("service.name")
 	app := fiber.New(fiber.Config{AppName: an})
-	port := viper.GetString("server.port")
+	port := viper.GetString("service.port")
 
 	wg.Add(1)
 	go func() {

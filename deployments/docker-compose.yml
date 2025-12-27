@@ -67,7 +67,7 @@ services:
 
   kafka-ui:
     container_name: kafka-ui
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui:v0.7.2
     networks: [stack]
     depends_on:
       - kafka
@@ -79,7 +79,7 @@ services:
 
   redis-commander:
     container_name: redis-commander
-    image: rediscommander/redis-commander:latest
+    image: rediscommander/redis-commander:redis-commander-210
     networks: [stack]
     depends_on:
       redis:
@@ -87,6 +87,12 @@ services:
     environment:
       - REDIS_HOSTS=local:redis:6379
     ports: ["6380:8081"]
+
+  hello-echo:
+    container_name: hello-echo
+    image: ealen/echo-server:0.9.2
+    networks: [stack]
+    ports: ["18080:80"]
 
 networks:
   stack:

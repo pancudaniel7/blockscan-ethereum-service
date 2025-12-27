@@ -1,14 +1,14 @@
-server:
+service:
   name: "blockscan-service"
   port: 8081
-  host: localhost
+  host: 0.0.0.0
 
 log:
   level: trace
 
 redis:
-  host: localhost
-  port: 6379
+  host: host.docker.internal
+  port: 6380
   db: 0
   password: ""
   use_tls: false
@@ -29,13 +29,18 @@ redis:
     publish_block_ttl_seconds: 180
 
 scanner:
-  websocket_url: ""
+  websocket_url: "ws://host.docker.internal:8545"
   finalized_blocks: false
   finalized_poll_delay: 15
   finalized_confirmations: 64
 
+ganache:
+  image: "trufflesuite/ganache:v7.9.2"
+  port: 0
+  chain_id: 31337
+
 kafka:
-  brokers: ["localhost:9092"]
+  brokers: ["host.docker.internal:9092"]
   topic: "block-upstream-topic"
   client_id: "blockscan-test"
   transactional_id: "blockscan-test-tx"

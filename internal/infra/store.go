@@ -53,10 +53,10 @@ func loadStoreConfig() store.Config {
 			ClaimIdleSeconds:        viper.GetInt("redis.streams.claim_idle_seconds"),
 		},
 		Lock: store.LockConfig{
-			DedupPrefix:              viper.GetString("redis.lock.dedup_prefix"),
-			BlockTTLSeconds:          viper.GetInt("redis.lock.block_ttl_seconds"),
-			DedupPublishBlockPrefix:  viper.GetString("redis.lock.dedup_publish_block_prefix"),
-			PublishBlockTTLSeconds:   viper.GetInt("redis.lock.publish_block_ttl_seconds"),
+			DedupPrefix:             viper.GetString("redis.lock.dedup_prefix"),
+			BlockTTLSeconds:         viper.GetInt("redis.lock.block_ttl_seconds"),
+			DedupPublishBlockPrefix: viper.GetString("redis.lock.dedup_publish_block_prefix"),
+			PublishBlockTTLSeconds:  viper.GetInt("redis.lock.publish_block_ttl_seconds"),
 		},
 	}
 }
