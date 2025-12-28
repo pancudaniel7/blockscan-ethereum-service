@@ -176,7 +176,7 @@ func (kp *KafkaPublisher) shouldRetry(err error) bool {
 
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		return netErr.Timeout() || netErr.Temporary()
+		return true
 	}
 
 	if kerr.IsRetriable(err) {

@@ -283,7 +283,7 @@ outer:
 				client.Close()
 				continue outer
 			}
-			var handleCtx context.Context = ctx
+			var handleCtx = ctx
 			var cancelHandle context.CancelFunc
 			if draining {
 				handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)

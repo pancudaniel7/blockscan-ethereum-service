@@ -282,10 +282,7 @@ func TestEthereumScannerScanNewHeadsConnectErrorLogsAndRetries(t *testing.T) {
 	}()
 
 	deadline := time.After(2 * time.Second)
-	for {
-		if logger.errors.Load() > 0 {
-			break
-		}
+	for logger.errors.Load() == 0 {
 		select {
 		case <-deadline:
 			t.Fatal("no error log observed for connect failure")

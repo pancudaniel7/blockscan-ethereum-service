@@ -93,7 +93,7 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {
 	hash, err := extractStringField(msg, "hash")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, apperr.NewBlockProcessErr("fail to extract hash string field", err)
 	}
 
 	if hash == "" {
@@ -102,7 +102,7 @@ func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {
 
 	strMsgNum, err := extractStringField(msg, "number")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, apperr.NewBlockProcessErr("fail to extract number string field", err)
 	}
 
 	if strMsgNum == "" {
@@ -116,7 +116,7 @@ func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {
 
 	payload, err := extractStringField(msg, "payload")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, apperr.NewBlockProcessErr("fail to etract block payload", err)
 	}
 
 	if payload == "" {
