@@ -51,6 +51,8 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 	default:
 	}
 
+	//TODO: point of failure
+
 	hash, payload, number, err := extractAllFields(msg)
 	if err != nil {
 		return apperr.NewBlockProcessErr("failed to extract fields from stream message", err)
@@ -85,6 +87,8 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		bps.log.Error("failed to store published marker", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
 		return apperr.NewBlockProcessErr("failed to store published marker", err)
 	}
+
+	//TODO: point of failure
 
 	bps.log.Trace("Published block from Redis stream", "hash", block.Hash.Hex(), "number", block.Header.Number, "message_id", msg.ID)
 	return nil

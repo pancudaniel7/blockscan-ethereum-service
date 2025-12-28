@@ -124,7 +124,7 @@ func (bs *BlockStream) StartReadFromStream() error {
 		for {
 			select {
 			case <-streamCtx.Done():
-				bs.logger.Trace("Stream context cancelled, shutting down reader", "stream", bs.cfg.Streams.Key)
+				bs.logger.Trace("Stream reader stopping; unacked messages remain pending for retry", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup, "consumer", consumerName)
 				return
 			default:
 			}
@@ -174,7 +174,7 @@ func (bs *BlockStream) StopReadFromStream() {
 	cancel := bs.cancel
 	bs.cancel = nil
 	bs.mu.Unlock()
-	bs.logger.Trace("Stopping Redis stream reader...", "stream", bs.cfg.Streams.Key)
+	bs.logger.Trace("Stopping Redis stream reader; pending messages remain available for re-consume", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
 	cancel()
 }
 
@@ -187,7 +187,7 @@ func (bs *BlockStream) processMessage(msg redis.XMessage) {
 		return
 	}
 	if err := handler(context.Background(), msg); err != nil {
-		bs.logger.Error("Stream handler failed", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
+		bs.logger.Error("Stream handler failed; leaving unacked for retry", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
 		return
 	}
 	bs.ackMessage(msg.ID)
@@ -244,7 +244,7 @@ func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, re
 			Consumer: consumerName,
 			Streams:  []string{bs.cfg.Streams.Key, "0"},
 			Count:    int64(readCount),
-			Block: 0,
+			Block:    0,
 		}).Result()
 		if err != nil {
 			if isNoGroupErr(err) {
@@ -356,7 +356,7 @@ func (bs *BlockStream) ackMessage(id string) {
 		func(attempt int) error {
 			_, err := bs.rdb.XAck(context.Background(), bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, id).Result()
 			if err != nil {
-				bs.logger.Warn("XACK failed", "stream", bs.cfg.Streams.Key, "id", id, "attempt", attempt, "err", err)
+				bs.logger.Warn("XACK failed; message remains pending for retry", "stream", bs.cfg.Streams.Key, "id", id, "attempt", attempt, "err", err)
 			}
 			return err
 		},
