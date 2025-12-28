@@ -64,17 +64,14 @@ func main() {
 	server = infra.StartServer(logger, &wg)
 	infra.InitRoutes(server)
 
-	// Start stream reader
 	if err := blockStreamReader.StartReadFromStream(); err != nil {
 		panic("Failed to start block stream reader: " + err.Error())
 	}
 
-	// Start the block scanner
 	if err := blockScanner.StartScanning(); err != nil {
 		panic("Failed to start block scanner: " + err.Error())
 	}
 
-	// Shutdown handling
 	callBack := func() error {
 		logger.Info("Executing shutdown routines...")
 		blockScanner.StopScanning()

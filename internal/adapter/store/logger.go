@@ -75,21 +75,16 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 		return false, apperr.NewBlockStoreErr("failed to marshal block payload", err)
 	}
 
-	// Ensure dedup key hashes to the same Redis Cluster slot as the stream key by
-	// embedding the stream's hashtag into the dedup key.
 	tag := clusterHashTag(bs.cfg.Streams.Key)
 	setKey := fmt.Sprintf("{%s}:%s:%s", tag, bs.cfg.Lock.DedupPrefix, block.Hash.Hex())
 	ttlMs := strconv.FormatInt(int64(bs.cfg.Lock.BlockTTLSeconds*1000), 10)
 	id := "*"
 
-	// Minimal field set; extend as needed
 	fields := []string{
 		"hash", block.Hash.Hex(),
 		"number", strconv.FormatUint(block.Header.Number, 10),
 		"payload", string(payload),
 	}
-
-	// FCALL add_block 2 <setKey> <streamKey> <ttl> <id> <fields...>
 	args := make([]interface{}, 0, 7+len(fields))
 	args = append(args, "FCALL", "add_block", 2, setKey, bs.cfg.Streams.Key, ttlMs, id)
 	for _, f := range fields {
@@ -100,7 +95,6 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 	err = pattern.Retry(
 		ctx,
 		func(attempt int) error {
-			// Call add_block redis function
 			res, err := bs.rdb.Do(ctx, args...).Result()
 			if err != nil {
 				bs.log.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)

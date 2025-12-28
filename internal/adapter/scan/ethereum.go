@@ -156,11 +156,9 @@ outer:
 					break inner
 				}
 
-				// Catch up sequentially from the last processed height to the new head.
 				target := header.Number.Uint64()
 				start := s.lastProcessed + 1
 				if s.lastProcessed == 0 {
-					// First run: begin from the first observed head.
 					start = target
 				}
 				for h := start; h <= target; h++ {
@@ -219,9 +217,7 @@ outer:
 		s.log.Trace("Connected to Ethereum node for finalized polling")
 
 		for {
-			// Recompute the backlog only when empty and not draining.
 			if len(pendingHeights) == 0 && !draining {
-				// Try to read the current finalized head directly; fallback to confirmations math.
 				finalized, err := s.currentFinalizedNumber(ctx, client)
 				if err != nil {
 					if ctx.Err() != nil {
@@ -235,7 +231,6 @@ outer:
 				} else {
 					next := s.lastProcessed + 1
 					if s.lastProcessed == 0 {
-						// On the first run, start at the current finalized tip to avoid replaying a large backlog
 						next = finalized
 					}
 					if next <= finalized {
@@ -252,7 +247,6 @@ outer:
 					client.Close()
 					return
 				}
-				// Wait for the next poll or cancellation.
 				select {
 				case <-ctx.Done():
 					if !draining {
@@ -267,7 +261,6 @@ outer:
 
 			height := pendingHeights[0]
 
-			// Use timeouts for RPC fetches to avoid hanging on shutdown or network stalls.
 			var (
 				fetchCtx    context.Context
 				cancelFetch context.CancelFunc
@@ -283,19 +276,13 @@ outer:
 				if ctx.Err() != nil {
 					s.log.Trace("Context canceled while fetching finalized block, continuing drain", "height", height)
 					draining = true
-
-					// Do not drop the height; retry after reconnect
 					client.Close()
 					continue outer
 				}
 				s.log.Warn("Failed to fetch finalized block; will reconnect and retry", "height", height, "err", err)
-
-				// Keep the height in the queue and reconnect
 				client.Close()
 				continue outer
 			}
-
-			// Use a non-canceled context while draining to allow the handler to complete.
 			var handleCtx context.Context = ctx
 			var cancelHandle context.CancelFunc
 			if draining {
@@ -306,12 +293,9 @@ outer:
 			}
 			if err := s.handleBlock(handleCtx, blk); err != nil {
 				s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
-				// Keep the height in the backlog and reconnect to retry.
 				client.Close()
 				continue outer
 			}
-
-			// Success: pop from the backlog (lastProcessed updated by handleBlock).
 			pendingHeights = pendingHeights[1:]
 		}
 	}
@@ -321,23 +305,18 @@ outer:
 // RPC 'finalized' tag when available. If the node does not support the tag
 // (or returns an error), it falls back to `latest - confirmations`.
 func (s *EthereumScanner) currentFinalizedNumber(ctx context.Context, client ethereumClient) (uint64, error) {
-	// Try the canonical 'finalized' tag first.
 	header, err := client.HeaderByNumber(ctx, big.NewInt(int64(rpc.FinalizedBlockNumber)))
 	if err == nil && header != nil {
 		return header.Number.Uint64(), nil
 	}
-
-	// Fallback to latest-confirmations if configured.
 	latest, lerr := client.BlockNumber(ctx)
 	if lerr != nil {
 		if err != nil {
-			// Prefer the original error if both failed.
 			return 0, err
 		}
 		return 0, lerr
 	}
 	if latest < s.config.FinalizedConfirmations {
-		// Not enough chain height to satisfy the confirmation window yet
 		return 0, apperr.NewBlockScanErr("finalization window not yet available", nil)
 	}
 	return latest - s.config.FinalizedConfirmations, nil

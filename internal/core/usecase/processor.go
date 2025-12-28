@@ -68,8 +68,6 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		block.Header.Number = *number
 	}
 
-	// If this block was already published (e.g., previous run set the
-	// durable marker), skip re-publishing and allow ack to proceed.
 	if ok, err := bps.storeLogger.IsBlockPublished(ctx, block.Hash.Hex()); err != nil {
 		return apperr.NewBlockProcessErr("failed to check published marker", err)
 	} else if ok {
@@ -83,7 +81,6 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		return apperr.NewBlockProcessErr("failed to publish block", err)
 	}
 
-	// Record the durable marker before allowing ack to proceed.
 	if _, err := bps.storeLogger.StorePublishedBlockHash(ctx, block.Hash.Hex()); err != nil {
 		bps.log.Error("failed to store published marker", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
 		return apperr.NewBlockProcessErr("failed to store published marker", err)

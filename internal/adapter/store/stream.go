@@ -81,11 +81,7 @@ func (bs *BlockStream) StartReadFromStream() error {
 		bs.mu.Unlock()
 		return apperr.NewBlockStreamErr("block stream reader already running", nil)
 	}
-	// Config struct is validated in NewBlockStream via go-playground/validator,
-	// so no additional checks for consumer group/name are necessary here.
 
-	// Use configured consumer name. Keeping it stable across restarts allows
-	// draining this consumer's PEL after a crash.
 	consumerName := bs.cfg.Streams.ConsumerName
 
 	streamCtx, cancel := context.WithCancel(context.Background())
@@ -93,8 +89,6 @@ func (bs *BlockStream) StartReadFromStream() error {
 	bs.running = true
 	bs.mu.Unlock()
 
-	// Ensure a consumer group exists (create if missing) with retry until
-	// the context is canceled. This covers initial Redis availability too.
 	if err := bs.ensureGroupWithRetry(streamCtx); err != nil {
 		cancel()
 		bs.mu.Lock()
@@ -104,9 +98,6 @@ func (bs *BlockStream) StartReadFromStream() error {
 		return err
 	}
 
-	// Add the stream reader goroutine to the root WaitGroup so shutdown waits
-	// for it to exit. This ensures a graceful shutdown: the current message
-	// finishes processing and acks before the process terminates.
 	bs.wg.Add(1)
 	go func() {
 		defer bs.wg.Done()
@@ -118,7 +109,6 @@ func (bs *BlockStream) StartReadFromStream() error {
 			bs.logger.Trace("Stopped reading from Redis stream", "stream", bs.cfg.Streams.Key)
 		}()
 
-		// Ack handled via bs.ackMessage method.
 		readCount := bs.cfg.Streams.ReadCount
 		blockTimeout := time.Duration(bs.cfg.Streams.ReadBlockTimeoutSeconds) * time.Second
 		claimIdle := time.Duration(bs.cfg.Streams.ClaimIdleSeconds) * time.Second
@@ -131,17 +121,13 @@ func (bs *BlockStream) StartReadFromStream() error {
 			"count", readCount,
 		)
 
-		// processMessage moved to a helper to keep this loop concise.
 		for {
-			// Exit promptly if asked to stop (after the current message finishes).
 			select {
 			case <-streamCtx.Done():
 				bs.logger.Trace("Stream context cancelled, shutting down reader", "stream", bs.cfg.Streams.Key)
 				return
 			default:
 			}
-
-			// 1) Drain this consumer's pending messages (non-blocking)
 			if err := bs.drainPending(streamCtx, consumerName, readCount); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return
@@ -152,8 +138,6 @@ func (bs *BlockStream) StartReadFromStream() error {
 				time.Sleep(500 * time.Millisecond)
 				continue
 			}
-
-			// 2) Reclaim stale messages from other consumers (failover)
 			if claimIdle > 0 {
 				if err := bs.reclaimStale(streamCtx, consumerName, readCount, claimIdle); err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -164,8 +148,6 @@ func (bs *BlockStream) StartReadFromStream() error {
 					continue
 				}
 			}
-
-			// 3) Read new messages (blocking with timeout)
 			if err := bs.readNew(streamCtx, consumerName, readCount, blockTimeout); err != nil {
 				if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 					return
@@ -206,7 +188,6 @@ func (bs *BlockStream) processMessage(msg redis.XMessage) {
 	}
 	if err := handler(context.Background(), msg); err != nil {
 		bs.logger.Error("Stream handler failed", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
-		// Leave unacked; it remains pending for re-consume.
 		return
 	}
 	bs.ackMessage(msg.ID)
@@ -263,11 +244,9 @@ func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, re
 			Consumer: consumerName,
 			Streams:  []string{bs.cfg.Streams.Key, "0"},
 			Count:    int64(readCount),
-			// Non-blocking read of this consumer's pending entries: omit BLOCK.
 			Block: 0,
 		}).Result()
 		if err != nil {
-			// If the consumer group or stream is missing, try to recreate it and continue.
 			if isNoGroupErr(err) {
 				if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
 					return gerr
@@ -312,7 +291,6 @@ func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, re
 				if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
 					return gerr
 				}
-				// restart claiming from beginning after group recreation
 				start = "0-0"
 				continue
 			}

@@ -104,7 +104,6 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 
 	rec := kp.buildRecord(block, payload, headers)
 	if err := pattern.Retry(ctx, func(attempt int) error {
-		// For transactional producers, wrap each message in a short transaction.
 		if kp.cfg.TransactionalID != "" {
 			if err := kp.client.BeginTransaction(); err != nil {
 				return err
@@ -114,11 +113,9 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 		attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
 		defer cancel()
 
-		// Produce synchronously; FirstErr returns the first error in the batch.
 		res := kp.client.ProduceSync(attemptCtx, rec)
 		writeErr := res.FirstErr()
 		if kp.cfg.TransactionalID != "" {
-			// Try to commit if produce succeeded; abort on error.
 			if writeErr == nil {
 				if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
 					writeErr = err
@@ -145,14 +142,10 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 }
 
 func (kp *KafkaPublisher) buildRecord(block *entity.Block, payload []byte, extras map[string]string) *kgo.Record {
-	// Timestamp left to broker (CreateTime / LogAppendTime), not set explicitly.
-
 	headers := []kgo.RecordHeader{
 		{Key: "block-number", Value: []byte(strconv.FormatUint(block.Header.Number, 10))},
 		{Key: "block-hash", Value: []byte(block.Hash.Hex())},
 	}
-
-	// Append any extra headers provided by callers (e.g., source-message-id)
 	if len(extras) > 0 {
 		for k, v := range extras {
 			if k == "" {
@@ -186,14 +179,9 @@ func (kp *KafkaPublisher) shouldRetry(err error) bool {
 		return netErr.Timeout() || netErr.Temporary()
 	}
 
-	// Treat broker-marked retriable errors as retryable (leader changes,
-	// coordinator load, not enough replicas, etc.).
 	if kerr.IsRetriable(err) {
 		return true
 	}
-
-	// When the topic may be provisioned shortly after startup, temporarily
-	// retry UnknownTopicOrPartition to allow the provisioner to catch up.
 	if errors.Is(err, kerr.UnknownTopicOrPartition) {
 		return true
 	}
