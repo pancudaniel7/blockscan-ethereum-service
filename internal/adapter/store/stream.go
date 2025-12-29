@@ -39,10 +39,10 @@ type BlockStream struct {
 // NewBlockStream validates the Config, constructs a Redis client with optional
 // TLS, and returns an initialized BlockStream.
 func NewBlockStream(logger applog.AppLogger, wg *sync.WaitGroup, v *validator.Validate, cfg Config) (*BlockStream, error) {
-	if err := v.Struct(cfg); err != nil {
-		logger.Error("invalid redis config: %v", err)
-		return nil, err
-	}
+    if err := v.Struct(cfg); err != nil {
+        logger.Error("invalid redis config", "err", err)
+        return nil, err
+    }
 
 	addr := net.JoinHostPort(cfg.Host, cfg.Port)
 	opts := &redis.Options{

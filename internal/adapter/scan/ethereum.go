@@ -44,10 +44,10 @@ const fetchTimeout = 10 * time.Second
 // error messages. The provided wait group will be used to track the scan
 // goroutine lifecycle.
 func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg *Config, v *validator.Validate) (*EthereumScanner, error) {
-	if err := v.Struct(cfg); err != nil {
-		log.Error("Invalid cfg", "err", err)
-		return nil, apperr.NewBlockScanErr("Invalid cfg", err)
-	}
+    if err := v.Struct(cfg); err != nil {
+        log.Error("invalid config", "err", err)
+        return nil, apperr.NewBlockScanErr("invalid config", err)
+    }
 
 	s := &EthereumScanner{
 		log:    log,
