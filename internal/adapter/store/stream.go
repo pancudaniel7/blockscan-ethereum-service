@@ -79,14 +79,15 @@ func (bs *BlockStream) SetHandler(handler port.StreamMessageHandler) {
 // then continuously reads new messages, dispatching each through the handler
 // and acknowledging on success. The consumer name is made unique per process.
 func (bs *BlockStream) StartReadFromStream() error {
-	bs.mu.Lock()
-	if bs.handler == nil {
-		return apperr.NewBlockStreamErr("stream handler is not configured", nil)
-	}
-	if bs.running {
-		bs.mu.Unlock()
-		return apperr.NewBlockStreamErr("block stream reader already running", nil)
-	}
+    bs.mu.Lock()
+    if bs.handler == nil {
+        bs.mu.Unlock()
+        return apperr.NewBlockStreamErr("stream handler is not configured", nil)
+    }
+    if bs.running {
+        bs.mu.Unlock()
+        return apperr.NewBlockStreamErr("block stream reader already running", nil)
+    }
 
 	consumerName := bs.cfg.Streams.ConsumerName
 

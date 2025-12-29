@@ -283,19 +283,20 @@ outer:
 				client.Close()
 				continue outer
 			}
-			var handleCtx = ctx
-			var cancelHandle context.CancelFunc
-			if draining {
-				handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)
-			}
-			if cancelHandle != nil {
-				defer cancelHandle()
-			}
-			if err := s.handleBlock(handleCtx, blk); err != nil {
-				s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
-				client.Close()
-				continue outer
-			}
+            var handleCtx = ctx
+            var cancelHandle context.CancelFunc
+            if draining {
+                handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)
+            }
+            err = s.handleBlock(handleCtx, blk)
+            if cancelHandle != nil {
+                cancelHandle()
+            }
+            if err != nil {
+                s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
+                client.Close()
+                continue outer
+            }
 			pendingHeights = pendingHeights[1:]
 		}
 	}
