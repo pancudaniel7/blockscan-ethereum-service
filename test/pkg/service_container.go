@@ -137,7 +137,7 @@ func dockerImageExists(tag string) bool {
 
 // buildServiceImage builds the service image using build/Dockerfile.test and tags it.
 func buildServiceImage(tag, failpoint string) error {
-	args := []string{"build", "-f", "build/Dockerfile.test", "-t", tag, "."}
+	args := []string{"build", "--pull", "--no-cache", "-f", "build/Dockerfile.test", "-t", tag, "."}
 	cmd := exec.Command("docker", args...)
 	if root, err := repoRootDir(); err == nil {
 		cmd.Dir = root
@@ -149,20 +149,34 @@ func buildServiceImage(tag, failpoint string) error {
 	return nil
 }
 
-// EnsureServiceImageBuilt builds the service image if it is missing.
+// EnsureServiceImageBuilt deletes any existing image tag and rebuilds the
+// failpoint-instrumented service image to avoid reusing old binaries.
 func EnsureServiceImageBuilt(t *testing.T) {
 	t.Helper()
 	tag := strings.TrimSpace(viper.GetString("service.image_tag"))
 	require.NotEmpty(t, tag)
 	if dockerImageExists(tag) {
-		return
+		_ = removeDockerImage(tag)
 	}
-	cmd := exec.Command("docker", "build", "-f", "build/Dockerfile.test", "-t", tag, ".")
+	cmd := exec.Command("docker", "build", "--pull", "--no-cache", "-f", "build/Dockerfile.test", "-t", tag, ".")
 	if root, err := repoRootDir(); err == nil {
 		cmd.Dir = root
 	}
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(t, err, "docker build failed: %s", string(out))
+}
+
+// removeDockerImage removes a local image tag if present.
+func removeDockerImage(tag string) error {
+	if strings.TrimSpace(tag) == "" {
+		return nil
+	}
+	cmd := exec.Command("docker", "image", "rm", "-f", tag)
+	if root, err := repoRootDir(); err == nil {
+		cmd.Dir = root
+	}
+	_, err := cmd.CombinedOutput()
+	return err
 }
 
 func repoRootDir() (string, error) {
