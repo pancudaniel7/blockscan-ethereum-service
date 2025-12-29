@@ -12,8 +12,8 @@ RUN apk add --no-cache git ca-certificates build-base
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy the rest of the source
-COPY pkg .
+# Copy the entire source tree (cmd, internal, pkg, etc.)
+COPY . .
 
 # Build a static linux binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
@@ -42,4 +42,3 @@ EXPOSE 8081
 USER appuser
 
 ENTRYPOINT ["/usr/local/bin/app"]
-
