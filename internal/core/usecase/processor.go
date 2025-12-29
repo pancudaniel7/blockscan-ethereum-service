@@ -40,11 +40,11 @@ func (bps *BlockProcessorService) StoreBlock(ctx context.Context, block *types.B
 	}
 
 	entityBlock := mapBlock(block)
-	stored, err := bps.storeLogger.StoreBlock(ctx, entityBlock)
-	if err != nil {
-		bps.log.Error("failed to storeLogger block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex(), "err", err)
-		return apperr.NewBlockProcessErr("failed to storeLogger block", err)
-	}
+    stored, err := bps.storeLogger.StoreBlock(ctx, entityBlock)
+    if err != nil {
+        bps.log.Error("failed to store block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex(), "err", err)
+        return apperr.NewBlockProcessErr("failed to store block", err)
+    }
 
 	if stored {
 		bps.log.Info("Stored block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex())
@@ -110,19 +110,19 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 }
 
 func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {
-	hash, err := extractStringField(msg, "hash")
-	if err != nil {
-		return nil, nil, nil, apperr.NewBlockProcessErr("fail to extract hash string field", err)
-	}
+    hash, err := extractStringField(msg, "hash")
+    if err != nil {
+        return nil, nil, nil, apperr.NewBlockProcessErr("failed to extract hash string field", err)
+    }
 
 	if hash == "" {
 		return nil, nil, nil, apperr.NewBlockProcessErr("stream message missing block hash", nil)
 	}
 
-	strMsgNum, err := extractStringField(msg, "number")
-	if err != nil {
-		return nil, nil, nil, apperr.NewBlockProcessErr("fail to extract number string field", err)
-	}
+    strMsgNum, err := extractStringField(msg, "number")
+    if err != nil {
+        return nil, nil, nil, apperr.NewBlockProcessErr("failed to extract number string field", err)
+    }
 
 	if strMsgNum == "" {
 		return nil, nil, nil, apperr.NewBlockProcessErr("stream message missing block number", nil)
@@ -133,10 +133,10 @@ func extractAllFields(msg redis.XMessage) (*string, *string, *uint64, error) {
 		return nil, nil, nil, apperr.NewBlockProcessErr("invalid block number in stream message", err)
 	}
 
-	payload, err := extractStringField(msg, "payload")
-	if err != nil {
-		return nil, nil, nil, apperr.NewBlockProcessErr("fail to etract block payload", err)
-	}
+    payload, err := extractStringField(msg, "payload")
+    if err != nil {
+        return nil, nil, nil, apperr.NewBlockProcessErr("failed to extract block payload", err)
+    }
 
 	if payload == "" {
 		return nil, nil, nil, apperr.NewBlockProcessErr("stream message missing block payload", nil)

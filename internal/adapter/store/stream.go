@@ -23,7 +23,7 @@ import (
 // re-consumed by another replica and that publish remains idempotent.
 const FPFailBeforeAck = "fail-before-ack"
 
-// BlockStream encapsulates Redis stream reding new stream block entries.
+// BlockStream encapsulates Redis stream reading new stream block entries.
 // It mirrors the cache.Config options and uses the shared validator instance.
 type BlockStream struct {
 	rdb     *redis.Client
