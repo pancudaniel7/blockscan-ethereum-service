@@ -1,21 +1,27 @@
 package store
 
 import (
-	"context"
-	"crypto/tls"
-	"errors"
-	"net"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "crypto/tls"
+    "errors"
+    "net"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
-	"github.com/redis/go-redis/v9"
+	"github.com/pingcap/failpoint"
+    "github.com/redis/go-redis/v9"
 )
+
+// FPFailBeforeAck simulates a crash immediately before acknowledging a consumed
+// stream message. Flow tests enable it to ensure pending entries are safely
+// re-consumed by another replica and that publish remains idempotent.
+const FPFailBeforeAck = "fail-before-ack"
 
 // BlockStream encapsulates Redis stream reding new stream block entries.
 // It mirrors the cache.Config options and uses the shared validator instance.
@@ -190,6 +196,9 @@ func (bs *BlockStream) processMessage(msg redis.XMessage) {
 		bs.logger.Error("Stream handler failed; leaving unacked for retry", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
 		return
 	}
+    failpoint.Inject(FPFailBeforeAck, func() {
+        bs.logger.Fatal("failpoint triggered: fail-before-ack", "stream", bs.cfg.Streams.Key, "id", msg.ID)
+    })
 	bs.ackMessage(msg.ID)
 }
 

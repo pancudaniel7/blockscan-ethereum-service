@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	util "github.com/pancudaniel7/blockscan-ethereum-service/test/util"
+	util "github.com/pancudaniel7/blockscan-ethereum-service/test/pkg"
 	"github.com/redis/go-redis/v9"
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/require"

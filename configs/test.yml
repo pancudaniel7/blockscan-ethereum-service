@@ -50,3 +50,7 @@ kafka:
   retry_max_backoff_ms: 1500
   retry_jitter: 0.15
   write_timeout_seconds: 5
+
+test:
+  poll_interval_ms: 300
+  failpoint_settle_ms: 800

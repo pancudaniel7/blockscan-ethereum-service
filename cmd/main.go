@@ -1,7 +1,7 @@
 package main
 
 import (
-    "sync"
+	"sync"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
@@ -53,10 +53,10 @@ func initComponents() {
 }
 
 func main() {
-    bootstrap := applog.NewAppDefaultLogger()
-    if err := infra.LoadConfig(); err != nil {
-        bootstrap.Fatal("Failed to load config", "err", err)
-    }
+	bootstrap := applog.NewAppDefaultLogger()
+	if err := infra.LoadConfig(); err != nil {
+		bootstrap.Fatal("Failed to load config", "err", err)
+	}
 	logger = applog.NewAppDefaultLogger()
 	valid = validator.New()
 

@@ -9,8 +9,19 @@ import (
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+	"github.com/pingcap/failpoint"
 	"github.com/redis/go-redis/v9"
 )
+
+// FPFailBeforePublish simulates a crash right before publishing a block to the
+// upstream broker. It is used by flow tests to validate that a second replica
+// can take over and publish without duplicates or pending messages.
+const FPFailBeforePublish = "fail-before-publish"
+
+// FPFailAfterPublishBlockDedupHash simulates a crash after a successful publication
+// and after storing the deduplication marker for the published block. Flow
+// tests use it to verify idempotency of publication and correctness of dedup logic.
+const FPFailAfterPublishBlockDedupHash = "fail-after-publish-block-dedup-hash"
 
 type BlockProcessorService struct {
 	log          applog.AppLogger
@@ -51,7 +62,9 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 	default:
 	}
 
-	//TODO: point of failure
+	failpoint.Inject(FPFailBeforePublish, func() {
+		bps.log.Fatal("failpoint triggered: fail-before-publish")
+	})
 
 	hash, payload, number, err := extractAllFields(msg)
 	if err != nil {
@@ -88,7 +101,9 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		return apperr.NewBlockProcessErr("failed to store published marker", err)
 	}
 
-	//TODO: point of failure
+	failpoint.Inject(FPFailAfterPublishBlockDedupHash, func() {
+		bps.log.Fatal("failpoint triggered: kafka-dedup-producer")
+	})
 
 	bps.log.Trace("Published block from Redis stream", "hash", block.Hash.Hex(), "number", block.Header.Number, "message_id", msg.ID)
 	return nil
