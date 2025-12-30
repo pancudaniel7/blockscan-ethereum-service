@@ -41,8 +41,8 @@ integration-test:
 run:
 	CONFIG_NAME=$(CONFIG_NAME) go run -v ./cmd
 
-docker-up:
-	docker compose --verbose -f $(COMPOSE_FILE) up -d
+docker-dev-up:
+	docker compose --verbose -f $(COMPOSE_FILE) up -d redis redis-provisioner kafka kafka-provisioner kafka-ui redis-commander hello-echo
 
 docker-down:
 	docker compose --verbose -f $(COMPOSE_FILE) down
