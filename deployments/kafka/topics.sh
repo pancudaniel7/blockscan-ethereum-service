@@ -7,6 +7,7 @@ TOPIC="${KAFKA_TOPIC_NAME:-block-upstream-topic}"
 PARTITIONS="${KAFKA_TOPIC_PARTITIONS:-3}"
 REPLICATION="${KAFKA_TOPIC_REPLICATION_FACTOR:-1}"
 TOPIC_CLEANUP_POLICY="${KAFKA_TOPIC_CLEANUP_POLICY:-compact}"
+TOPIC_MAX_MSG_BYTES="${KAFKA_TOPIC_MAX_MESSAGE_BYTES:-}"
 RETRIES="${KAFKA_PROVISIONER_RETRIES:-60}"
 SLEEP_SECONDS="${KAFKA_PROVISIONER_SLEEP_SECONDS:-2}"
 
@@ -41,7 +42,8 @@ create_topic() {
         --topic "${TOPIC}" \
         --partitions "${PARTITIONS}" \
         --replication-factor "${REPLICATION}" \
-        --config "cleanup.policy=${TOPIC_CLEANUP_POLICY}"
+        --config "cleanup.policy=${TOPIC_CLEANUP_POLICY}" \
+        $( [ -n "${TOPIC_MAX_MSG_BYTES}" ] && printf -- '--config max.message.bytes=%s' "${TOPIC_MAX_MSG_BYTES}" )
     echo "Kafka topic '${TOPIC}' ensured."
 }
 

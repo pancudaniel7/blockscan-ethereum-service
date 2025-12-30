@@ -29,6 +29,9 @@ func InitBlockPublisher(logger applog.AppLogger, v *validator.Validate) (port.Pu
 		RetryMaxBackoffMS:     viper.GetInt("kafka.retry_max_backoff_ms"),
 		RetryJitter:           viper.GetFloat64("kafka.retry_jitter"),
 		WriteTimeoutSeconds:   viper.GetInt("kafka.write_timeout_seconds"),
+		ProducerBatchMaxBytes: viper.GetInt("kafka.producer_batch_max_bytes"),
+		ProducerCompression:   viper.GetString("kafka.producer_compression"),
+		MaxRecordBytes:        viper.GetInt("kafka.max_record_bytes"),
 	}
 
 	publisher, err := publish.NewKafkaPublisher(logger, cfg, v)

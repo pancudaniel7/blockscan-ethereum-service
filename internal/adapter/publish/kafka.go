@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 
+	"strings"
+
 	"github.com/go-playground/validator/v10"
 	"github.com/twmb/franz-go/pkg/kerr"
 	"github.com/twmb/franz-go/pkg/kgo"
@@ -74,6 +76,13 @@ func NewKafkaPublisher(log applog.AppLogger, cfg Config, v *validator.Validate) 
 	if cfg.TransactionalID != "" {
 		opts = append(opts, kgo.TransactionalID(cfg.TransactionalID))
 	}
+
+	if opt, ok := producerCompressionOpt(cfg.ProducerCompression); ok {
+		opts = append(opts, opt)
+	}
+	if cfg.ProducerBatchMaxBytes > 0 {
+		opts = append(opts, kgo.ProducerBatchMaxBytes(int32(cfg.ProducerBatchMaxBytes)))
+	}
 	client, err := newKgoClient(opts...)
 	if err != nil {
 		return nil, apperr.NewInvalidArgErr("failed to init kafka client", err)
@@ -104,18 +113,32 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 		return apperr.NewInvalidArgErr("block is required", nil)
 	}
 
-	payload, err := usecase.MarshalBlockJSON(block)
-	if err != nil {
-		kp.log.Error("Failed to marshal block payload", "err", err)
-		return apperr.NewBlockPublishErr("failed to marshal block payload", err)
-	}
+    payload, err := usecase.MarshalBlockJSON(block)
+    if err != nil {
+        kp.log.Error("Failed to marshal block payload", "err", err)
+        return apperr.NewBlockPublishErr("failed to marshal block payload", err)
+    }
+
+    size := len(payload)
+    kp.log.Trace("Prepared block payload", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number, "value_bytes", size)
+    if kp.cfg.MaxRecordBytes > 0 && size > kp.cfg.MaxRecordBytes {
+        kp.log.Warn(
+            "Kafka record rejected by size guard",
+            "topic", kp.cfg.Topic,
+            "hash", block.Hash.Hex(),
+            "number", block.Header.Number,
+            "value_bytes", size,
+            "limit_bytes", kp.cfg.MaxRecordBytes,
+        )
+        return apperr.NewBlockPublishErr("payload exceeds max_record_bytes", nil)
+    }
 
 	rec := kp.buildRecord(block, payload, headers)
 	if err := kp.publishWithRetry(ctx, rec, block); err != nil {
 		return apperr.NewBlockPublishErr("failed to publish block to kafka", err)
 	}
 
-	kp.log.Trace("Published block to Kafka", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number)
+    kp.log.Trace("Published block to Kafka", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number, "value_bytes", size)
 	return nil
 }
 
@@ -216,4 +239,24 @@ func secondsOrDefault(seconds int, fallback time.Duration) time.Duration {
 		return fallback
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+// producerCompressionOpt maps a human-friendly compression name to a
+// corresponding kgo option. Returns (opt, true) when the name is recognized,
+// otherwise (zero, false) meaning no compression override.
+func producerCompressionOpt(name string) (kgo.Opt, bool) {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "gzip":
+		return kgo.ProducerBatchCompression(kgo.GzipCompression()), true
+	case "snappy":
+		return kgo.ProducerBatchCompression(kgo.SnappyCompression()), true
+	case "lz4":
+		return kgo.ProducerBatchCompression(kgo.Lz4Compression()), true
+	case "zstd", "":
+		return kgo.ProducerBatchCompression(kgo.ZstdCompression()), true
+	case "none":
+		return nil, false
+	default:
+		return nil, false
+	}
 }

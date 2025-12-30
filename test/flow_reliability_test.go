@@ -36,7 +36,7 @@ func TestNewHeadBlockFlow(t *testing.T) {
 		check func(t *testing.T)
 	}{
 		{
-			name: "successfully scan, log and publish without duplicates",
+			name: "successfully scan log and publish without duplicates",
 			setup: func(t *testing.T) {
 				name1 := fmt.Sprintf("blockscan-service-test-replica1-%d", time.Now().UnixNano())
 				srvRep1, err := util.InitServiceContainer(name1, "", "")
@@ -72,7 +72,7 @@ func TestNewHeadBlockFlow(t *testing.T) {
 			},
 		},
 		{
-			name: "successfully scan log and publish, where one replica fails before publishing",
+			name: "successfully scan log and publish where one replica fails before publishing",
 			setup: func(t *testing.T) {
 				fp := FPEnvBeforePublish
 				nameFail := fmt.Sprintf("blockscan-service-fp-pre-publish-%d", time.Now().UnixNano())
@@ -90,7 +90,7 @@ func TestNewHeadBlockFlow(t *testing.T) {
 			check: func(t *testing.T) { assertKafkaAndMarker(t, rc) },
 		},
 		{
-			name: "successfully scan log and publish, where one replica fails before ack the stream",
+			name: "successfully scan log and publish where one replica fails before ack the stream",
 			setup: func(t *testing.T) {
 				fp := FPEnvBeforeAck
 

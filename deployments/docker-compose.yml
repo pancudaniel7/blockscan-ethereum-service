@@ -45,6 +45,9 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
       CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      # Increase broker-side message limits to support larger records
+      KAFKA_MESSAGE_MAX_BYTES: 20971520
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 25165824
 
   kafka-provisioner:
     container_name: kafka-provisioner
@@ -62,6 +65,7 @@ services:
       KAFKA_TOPIC_PARTITIONS: 3
       KAFKA_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TOPIC_CLEANUP_POLICY: compact
+      KAFKA_TOPIC_MAX_MESSAGE_BYTES: 20971520
       KAFKA_PROVISIONER_RETRIES: 60
       KAFKA_PROVISIONER_SLEEP_SECONDS: 2
 

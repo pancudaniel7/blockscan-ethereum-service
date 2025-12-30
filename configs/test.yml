@@ -59,6 +59,7 @@ kafka:
   write_timeout_seconds: 5
   producer_compression: zstd
   producer_batch_max_bytes: 5242880
+  max_record_bytes: 20971520
 
 test:
   poll_interval_ms: 300
