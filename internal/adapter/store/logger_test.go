@@ -65,7 +65,7 @@ func TestNewBlockLogger_Table(t *testing.T) {
 		cfg     *Config
 		wantErr bool
 	}{
-		{name: "invalid_config", cfg: &Config{}, wantErr: true},
+		{name: "invalid config", cfg: &Config{}, wantErr: true},
 		func() struct {
 			name    string
 			cfg     *Config
@@ -77,7 +77,7 @@ func TestNewBlockLogger_Table(t *testing.T) {
 				name    string
 				cfg     *Config
 				wantErr bool
-			}{name: "valid_config", cfg: &c, wantErr: false}
+			}{name: "valid config", cfg: &c, wantErr: false}
 		}(),
 	}
 	for _, tt := range tests {
@@ -109,9 +109,9 @@ func TestStorePublishedBlockHash_Table(t *testing.T) {
 		hash       string
 		want       expectations
 	}{
-		{name: "create_then_idempotent", ttlSeconds: 5, hash: "0xabc", want: expectations{err: false, firstCreated: true, secondCreated: boolPtr(false), checkTTL: false}},
-		{name: "ttl_set_when_configured", ttlSeconds: 2, hash: "0xdef", want: expectations{err: false, firstCreated: true, secondCreated: nil, checkTTL: true}},
-		{name: "empty_hash_rejected", ttlSeconds: 5, hash: "  ", want: expectations{err: true, firstCreated: false, secondCreated: nil, checkTTL: false}},
+		{name: "create then idempotent", ttlSeconds: 5, hash: "0xabc", want: expectations{err: false, firstCreated: true, secondCreated: boolPtr(false), checkTTL: false}},
+		{name: "ttl set when configured", ttlSeconds: 2, hash: "0xdef", want: expectations{err: false, firstCreated: true, secondCreated: nil, checkTTL: true}},
+		{name: "empty hash rejected", ttlSeconds: 5, hash: "  ", want: expectations{err: true, firstCreated: false, secondCreated: nil, checkTTL: false}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -137,7 +137,7 @@ func TestStorePublishedBlockHash_Table(t *testing.T) {
 			}
 			if tc.want.checkTTL {
 				rc := redis.NewClient(&redis.Options{Addr: net.JoinHostPort(h, p)})
-				defer rc.Close()
+				t.Cleanup(func() { _ = rc.Close() })
 				tag := clusterHashTag(cfg.Streams.Key)
 				key := "{" + tag + "}:" + cfg.Lock.DedupPublishBlockPrefix + ":" + tc.hash
 				ttl := rc.TTL(ctx, key).Val()
@@ -180,8 +180,8 @@ func TestStoreBlock_Table(t *testing.T) {
 		wantStored bool
 		wantErr    bool
 	}{
-		{name: "invalid_block_validation", blk: &entity.Block{}, wantStored: false, wantErr: true},
-		{name: "do_error", hook: func(c *redis.Client) {
+		{name: "invalid block validation", blk: &entity.Block{}, wantStored: false, wantErr: true},
+		{name: "do error", hook: func(c *redis.Client) {
 			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
 				if cm, ok := cmd.(*redis.Cmd); ok {
 					cm.SetErr(errors.New("boom"))
@@ -189,7 +189,7 @@ func TestStoreBlock_Table(t *testing.T) {
 				return false
 			}})
 		}, blk: mkBlock(), wantErr: true},
-		{name: "success_status_1", hook: func(c *redis.Client) {
+		{name: "success status 1", hook: func(c *redis.Client) {
 			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
 				if cm, ok := cmd.(*redis.Cmd); ok {
 					cm.SetVal([]interface{}{int64(1), "id-1"})
@@ -197,7 +197,7 @@ func TestStoreBlock_Table(t *testing.T) {
 				return false
 			}})
 		}, blk: mkBlock(), wantStored: true},
-		{name: "exists_status_0_reason_EXISTS", hook: func(c *redis.Client) {
+		{name: "exists status 0 reason EXISTS", hook: func(c *redis.Client) {
 			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
 				if cm, ok := cmd.(*redis.Cmd); ok {
 					cm.SetVal([]interface{}{int64(0), "EXISTS"})
@@ -205,7 +205,7 @@ func TestStoreBlock_Table(t *testing.T) {
 				return false
 			}})
 		}, blk: mkBlock(), wantStored: false},
-		{name: "xadd_err_status_0_reason_XADD_ERR", hook: func(c *redis.Client) {
+		{name: "xadd err status 0 reason XADD ERR", hook: func(c *redis.Client) {
 			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
 				if cm, ok := cmd.(*redis.Cmd); ok {
 					cm.SetVal([]interface{}{int64(0), "XADD_ERR"})
@@ -213,7 +213,7 @@ func TestStoreBlock_Table(t *testing.T) {
 				return false
 			}})
 		}, blk: mkBlock(), wantErr: true},
-		{name: "unknown_reason_status_0", hook: func(c *redis.Client) {
+		{name: "unknown reason status 0", hook: func(c *redis.Client) {
 			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
 				if cm, ok := cmd.(*redis.Cmd); ok {
 					cm.SetVal([]interface{}{int64(0), "OTHER"})
@@ -221,7 +221,7 @@ func TestStoreBlock_Table(t *testing.T) {
 				return false
 			}})
 		}, blk: mkBlock(), wantErr: true},
-		{name: "unexpected_response_type", hook: func(c *redis.Client) {
+		{name: "unexpected response type", hook: func(c *redis.Client) {
 			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
 				if cm, ok := cmd.(*redis.Cmd); ok {
 					cm.SetVal("oops")
@@ -229,7 +229,7 @@ func TestStoreBlock_Table(t *testing.T) {
 				return false
 			}})
 		}, blk: mkBlock(), wantErr: true},
-		{name: "unexpected_status_type", hook: func(c *redis.Client) {
+		{name: "unexpected status type", hook: func(c *redis.Client) {
 			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
 				if cm, ok := cmd.(*redis.Cmd); ok {
 					cm.SetVal([]interface{}{"1", "id"})
@@ -268,12 +268,12 @@ func TestIsBlockPublished_Table(t *testing.T) {
 		want    bool
 		wantErr bool
 	}{
-		{name: "false_when_not_exists", setup: func(t *testing.T, bl *BlockLogger) {}, hash: "0xabc", want: false},
-		{name: "true_after_store_marker", setup: func(t *testing.T, bl *BlockLogger) {
+		{name: "false when not exists", setup: func(t *testing.T, bl *BlockLogger) {}, hash: "0xabc", want: false},
+		{name: "true after store marker", setup: func(t *testing.T, bl *BlockLogger) {
 			_, err := bl.StorePublishedBlockHash(context.Background(), "0xdef")
 			require.NoError(t, err)
 		}, hash: "0xdef", want: true},
-		{name: "empty_hash_rejected", setup: func(t *testing.T, bl *BlockLogger) {}, hash: " ", wantErr: true},
+		{name: "empty hash rejected", setup: func(t *testing.T, bl *BlockLogger) {}, hash: " ", wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -297,8 +297,8 @@ func TestIsBlockPublished_Table(t *testing.T) {
 func TestClusterHashTag_Table(t *testing.T) {
 	cases := []struct{ name, key, want string }{
 		{name: "hashtag", key: "{abc}:stream", want: "abc"},
-		{name: "embedded_hashtag", key: "x{abc}y:stream", want: "abc"},
-		{name: "no_braces", key: "stream:key", want: "stream:key"},
+		{name: "embedded hashtag", key: "x{abc}y:stream", want: "abc"},
+		{name: "no braces", key: "stream:key", want: "stream:key"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

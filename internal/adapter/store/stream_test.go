@@ -78,7 +78,7 @@ func TestBlockStream_Table(t *testing.T) {
 		run  func(t *testing.T, e env)
 	}{
 		{
-			name: "no_handler_returns_error",
+			name: "no handler returns error",
 			run: func(t *testing.T, e env) {
 				var wg sync.WaitGroup
 				lg := &testLog{}
@@ -90,7 +90,7 @@ func TestBlockStream_Table(t *testing.T) {
 			},
 		},
 		{
-			name: "read_and_ack_new_messages",
+			name: "read and ack new messages",
 			run: func(t *testing.T, e env) {
 				var wg sync.WaitGroup
 				lg := &testLog{}
@@ -128,7 +128,7 @@ func TestBlockStream_Table(t *testing.T) {
 			},
 		},
 		{
-			name: "handler_error_leaves_pending",
+			name: "handler error leaves pending",
 			run: func(t *testing.T, e env) {
 				var wg sync.WaitGroup
 				lg := &testLog{}
@@ -200,123 +200,165 @@ func TestBlockStream_EnsureGroup_Table(t *testing.T) {
 }
 
 func TestBlockStream_ReadNew_And_DrainPending_Paths_Table(t *testing.T) {
-	v := validator.New()
-	t.Run("readNew_creates_group_on_nogroup", func(t *testing.T) {
-		s, host, port := mini(t)
-		rc := redis.NewClient(&redis.Options{Addr: s.Addr()})
-		defer rc.Close()
-		lg := &testLog{}
-		var wg sync.WaitGroup
-		cfg := validStreamCfg(host, port)
-		bs, err := NewBlockStream(lg, &wg, v, cfg)
-		require.NoError(t, err)
-		err = bs.readNew(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount, 100*time.Millisecond)
-		require.NoError(t, err)
-		_, gErr := rc.XInfoGroups(context.Background(), cfg.Streams.Key).Result()
-		require.NoError(t, gErr)
-	})
-	t.Run("drain_pending_no_messages", func(t *testing.T) {
-		_, host, port := mini(t)
-		lg := &testLog{}
-		var wg sync.WaitGroup
-		cfg := validStreamCfg(host, port)
-		bs, err := NewBlockStream(lg, &wg, v, cfg)
-		require.NoError(t, err)
-		require.NoError(t, bs.ensureConsumerGroup(context.Background()))
-		err = bs.drainPending(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount)
-		require.NoError(t, err)
-	})
+    v := validator.New()
+    cases := []struct{
+        name string
+        run  func(t *testing.T)
+    }{
+        {
+            name: "readNew creates group on nogroup",
+            run: func(t *testing.T) {
+                s, host, port := mini(t)
+                rc := redis.NewClient(&redis.Options{Addr: s.Addr()})
+                t.Cleanup(func() { _ = rc.Close() })
+                lg := &testLog{}
+                var wg sync.WaitGroup
+                cfg := validStreamCfg(host, port)
+                bs, err := NewBlockStream(lg, &wg, v, cfg)
+                require.NoError(t, err)
+                err = bs.readNew(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount, 100*time.Millisecond)
+                require.NoError(t, err)
+                _, gErr := rc.XInfoGroups(context.Background(), cfg.Streams.Key).Result()
+                require.NoError(t, gErr)
+            },
+        },
+        {
+            name: "drain pending no messages",
+            run: func(t *testing.T) {
+                _, host, port := mini(t)
+                lg := &testLog{}
+                var wg sync.WaitGroup
+                cfg := validStreamCfg(host, port)
+                bs, err := NewBlockStream(lg, &wg, v, cfg)
+                require.NoError(t, err)
+                require.NoError(t, bs.ensureConsumerGroup(context.Background()))
+                err = bs.drainPending(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount)
+                require.NoError(t, err)
+            },
+        },
+    }
+    for _, tc := range cases {
+        t.Run(tc.name, tc.run)
+    }
 }
 
 func TestBlockStream_ReclaimStale_Table(t *testing.T) {
-	v := validator.New()
-	t.Run("no_messages_returns_nil", func(t *testing.T) {
-		_, host, port := mini(t)
-		lg := &testLog{}
-		var wg sync.WaitGroup
-		cfg := validStreamCfg(host, port)
-		bs, err := NewBlockStream(lg, &wg, v, cfg)
-		require.NoError(t, err)
-		require.NoError(t, bs.ensureConsumerGroup(context.Background()))
-		err = bs.reclaimStale(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount, 0)
-		require.NoError(t, err)
-	})
-	t.Run("claims_and_processes_stale_messages", func(t *testing.T) {
-		s, host, port := mini(t)
-		rc := redis.NewClient(&redis.Options{Addr: s.Addr()})
-		defer rc.Close()
-		lg := &testLog{}
-		var wg sync.WaitGroup
-		cfg := validStreamCfg(host, port)
-		bs, err := NewBlockStream(lg, &wg, v, cfg)
-		require.NoError(t, err)
-		_, err = rc.XGroupCreateMkStream(context.Background(), cfg.Streams.Key, cfg.Streams.ConsumerGroup, "0").Result()
-		require.NoError(t, err)
-		id, err := rc.XAdd(context.Background(), &redis.XAddArgs{Stream: cfg.Streams.Key, Values: map[string]any{"k": "v"}}).Result()
-		require.NoError(t, err)
-		_, err = rc.XReadGroup(context.Background(), &redis.XReadGroupArgs{Group: cfg.Streams.ConsumerGroup, Consumer: "other", Streams: []string{cfg.Streams.Key, ">"}, Count: 1}).Result()
-		require.NoError(t, err)
-		processed := make(chan string, 1)
-		bs.SetHandler(func(ctx context.Context, m redis.XMessage) error {
-			select {
-			case processed <- m.ID:
-			default:
-			}
-			return nil
-		})
-		err = bs.reclaimStale(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount, 0)
-		require.NoError(t, err)
-		select {
-		case got := <-processed:
-			require.Equal(t, id, got)
-		case <-time.After(2 * time.Second):
-			t.Fatalf("timeout")
-		}
-	})
+    v := validator.New()
+    cases := []struct{
+        name string
+        run  func(t *testing.T)
+    }{
+        {
+            name: "no messages returns nil",
+            run: func(t *testing.T) {
+                _, host, port := mini(t)
+                lg := &testLog{}
+                var wg sync.WaitGroup
+                cfg := validStreamCfg(host, port)
+                bs, err := NewBlockStream(lg, &wg, v, cfg)
+                require.NoError(t, err)
+                require.NoError(t, bs.ensureConsumerGroup(context.Background()))
+                err = bs.reclaimStale(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount, 0)
+                require.NoError(t, err)
+            },
+        },
+        {
+            name: "claims and processes stale messages",
+            run: func(t *testing.T) {
+                s, host, port := mini(t)
+                rc := redis.NewClient(&redis.Options{Addr: s.Addr()})
+                t.Cleanup(func() { _ = rc.Close() })
+                lg := &testLog{}
+                var wg sync.WaitGroup
+                cfg := validStreamCfg(host, port)
+                bs, err := NewBlockStream(lg, &wg, v, cfg)
+                require.NoError(t, err)
+                _, err = rc.XGroupCreateMkStream(context.Background(), cfg.Streams.Key, cfg.Streams.ConsumerGroup, "0").Result()
+                require.NoError(t, err)
+                id, err := rc.XAdd(context.Background(), &redis.XAddArgs{Stream: cfg.Streams.Key, Values: map[string]any{"k": "v"}}).Result()
+                require.NoError(t, err)
+                _, err = rc.XReadGroup(context.Background(), &redis.XReadGroupArgs{Group: cfg.Streams.ConsumerGroup, Consumer: "other", Streams: []string{cfg.Streams.Key, ">"}, Count: 1}).Result()
+                require.NoError(t, err)
+                processed := make(chan string, 1)
+                bs.SetHandler(func(ctx context.Context, m redis.XMessage) error {
+                    select { case processed <- m.ID: default: }
+                    return nil
+                })
+                err = bs.reclaimStale(context.Background(), cfg.Streams.ConsumerName, cfg.Streams.ReadCount, 0)
+                require.NoError(t, err)
+                select {
+                case got := <-processed:
+                    require.Equal(t, id, got)
+                case <-time.After(2 * time.Second):
+                    t.Fatalf("timeout")
+                }
+            },
+        },
+    }
+    for _, tc := range cases {
+        t.Run(tc.name, tc.run)
+    }
 }
 
 func TestBlockStream_Ack_Stop_Table(t *testing.T) {
-	v := validator.New()
-	t.Run("ack_empty_id_is_noop", func(t *testing.T) {
-		_, host, port := mini(t)
-		lg := &testLog{}
-		var wg sync.WaitGroup
-		cfg := validStreamCfg(host, port)
-		bs, err := NewBlockStream(lg, &wg, v, cfg)
-		require.NoError(t, err)
-		bs.ackMessage("")
-	})
-	t.Run("ack_valid_id_and_retry_on_error", func(t *testing.T) {
-		s, host, port := mini(t)
-		rc := redis.NewClient(&redis.Options{Addr: s.Addr()})
-		defer rc.Close()
-		lg := &testLog{}
-		var wg sync.WaitGroup
-		cfg := validStreamCfg(host, port)
-		bs, err := NewBlockStream(lg, &wg, v, cfg)
-		require.NoError(t, err)
-		_, err = rc.XGroupCreateMkStream(context.Background(), cfg.Streams.Key, cfg.Streams.ConsumerGroup, "0").Result()
-		require.NoError(t, err)
-		id, err := rc.XAdd(context.Background(), &redis.XAddArgs{Stream: cfg.Streams.Key, Values: map[string]any{"k": "v"}}).Result()
-		require.NoError(t, err)
-		_, err = rc.XReadGroup(context.Background(), &redis.XReadGroupArgs{Group: cfg.Streams.ConsumerGroup, Consumer: cfg.Streams.ConsumerName, Streams: []string{cfg.Streams.Key, ">"}, Count: 1}).Result()
-		require.NoError(t, err)
-		bs.ackMessage(id)
-		p, perr := rc.XPending(context.Background(), cfg.Streams.Key, cfg.Streams.ConsumerGroup).Result()
-		require.NoError(t, perr)
-		require.Equal(t, int64(0), p.Count)
-		s.Close()
-		bs.ackMessage("1-0")
-	})
-	t.Run("stop_when_not_started_is_noop", func(t *testing.T) {
-		_, host, port := mini(t)
-		lg := &testLog{}
-		var wg sync.WaitGroup
-		cfg := validStreamCfg(host, port)
-		bs, err := NewBlockStream(lg, &wg, v, cfg)
-		require.NoError(t, err)
-		bs.StopReadFromStream()
-	})
+    v := validator.New()
+    cases := []struct{
+        name string
+        run  func(t *testing.T)
+    }{
+        {
+            name: "ack empty id is noop",
+            run: func(t *testing.T) {
+                _, host, port := mini(t)
+                lg := &testLog{}
+                var wg sync.WaitGroup
+                cfg := validStreamCfg(host, port)
+                bs, err := NewBlockStream(lg, &wg, v, cfg)
+                require.NoError(t, err)
+                bs.ackMessage("")
+            },
+        },
+        {
+            name: "ack valid id and retry on error",
+            run: func(t *testing.T) {
+                s, host, port := mini(t)
+                rc := redis.NewClient(&redis.Options{Addr: s.Addr()})
+                t.Cleanup(func() { _ = rc.Close() })
+                lg := &testLog{}
+                var wg sync.WaitGroup
+                cfg := validStreamCfg(host, port)
+                bs, err := NewBlockStream(lg, &wg, v, cfg)
+                require.NoError(t, err)
+                _, err = rc.XGroupCreateMkStream(context.Background(), cfg.Streams.Key, cfg.Streams.ConsumerGroup, "0").Result()
+                require.NoError(t, err)
+                id, err := rc.XAdd(context.Background(), &redis.XAddArgs{Stream: cfg.Streams.Key, Values: map[string]any{"k": "v"}}).Result()
+                require.NoError(t, err)
+                _, err = rc.XReadGroup(context.Background(), &redis.XReadGroupArgs{Group: cfg.Streams.ConsumerGroup, Consumer: cfg.Streams.ConsumerName, Streams: []string{cfg.Streams.Key, ">"}, Count: 1}).Result()
+                require.NoError(t, err)
+                bs.ackMessage(id)
+                p, perr := rc.XPending(context.Background(), cfg.Streams.Key, cfg.Streams.ConsumerGroup).Result()
+                require.NoError(t, perr)
+                require.Equal(t, int64(0), p.Count)
+                s.Close()
+                bs.ackMessage("1-0")
+            },
+        },
+        {
+            name: "stop when not started is noop",
+            run: func(t *testing.T) {
+                _, host, port := mini(t)
+                lg := &testLog{}
+                var wg sync.WaitGroup
+                cfg := validStreamCfg(host, port)
+                bs, err := NewBlockStream(lg, &wg, v, cfg)
+                require.NoError(t, err)
+                bs.StopReadFromStream()
+            },
+        },
+    }
+    for _, tc := range cases {
+        t.Run(tc.name, tc.run)
+    }
 }
 
 func TestIsNoGroupErr_Table(t *testing.T) {
@@ -325,9 +367,9 @@ func TestIsNoGroupErr_Table(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{name: "nogroup_upper", err: errors.New("NOGROUP foo"), want: true},
-		{name: "nogroup_mixed", err: errors.New("noGroup bar"), want: true},
-		{name: "nil_err", err: nil, want: false},
+		{name: "nogroup upper", err: errors.New("NOGROUP foo"), want: true},
+		{name: "nogroup mixed", err: errors.New("noGroup bar"), want: true},
+		{name: "nil err", err: nil, want: false},
 		{name: "other", err: errors.New("x"), want: false},
 	}
 	for _, c := range cases {
