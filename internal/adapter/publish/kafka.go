@@ -111,37 +111,7 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
     }
 
 	rec := kp.buildRecord(block, payload, headers)
-    if err := pattern.Retry(ctx, func(attempt int) error {
-		if kp.cfg.TransactionalID != "" {
-			if err := kp.client.BeginTransaction(); err != nil {
-				return err
-			}
-		}
-
-		attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
-		defer cancel()
-
-        res := kp.client.ProduceSync(attemptCtx, rec)
-        writeErr := res.FirstErr()
-        if kp.cfg.TransactionalID != "" {
-            if writeErr == nil {
-                if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
-                    writeErr = err
-                }
-            } else {
-                _ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
-            }
-        }
-
-		if writeErr != nil {
-			if kp.shouldRetry(writeErr) {
-				kp.log.Warn("Kafka publish attempt failed", "attempt", attempt, "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", writeErr)
-			} else {
-				kp.log.Error("Kafka publish failed (non-retriable)", "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", writeErr)
-			}
-		}
-		return writeErr
-    }, kp.retryOpts...); err != nil {
+    if err := kp.publishWithRetry(ctx, rec, block); err != nil {
         return apperr.NewBlockPublishErr("failed to publish block to kafka", err)
     }
 
@@ -169,6 +139,44 @@ func (kp *KafkaPublisher) buildRecord(block *entity.Block, payload []byte, extra
 		Value:   payload,
 		Headers: headers,
 	}
+}
+
+func (kp *KafkaPublisher) publishWithRetry(ctx context.Context, rec *kgo.Record, block *entity.Block) error {
+    return pattern.Retry(ctx, func(attempt int) error {
+        err := kp.produceOnce(ctx, rec)
+        if err != nil {
+            if kp.shouldRetry(err) {
+                kp.log.Warn("Kafka publish attempt failed", "attempt", attempt, "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
+            } else {
+                kp.log.Error("Kafka publish failed (non-retriable)", "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
+            }
+        }
+        return err
+    }, kp.retryOpts...)
+}
+
+func (kp *KafkaPublisher) produceOnce(ctx context.Context, rec *kgo.Record) error {
+    if kp.cfg.TransactionalID != "" {
+        if err := kp.client.BeginTransaction(); err != nil {
+            return err
+        }
+    }
+
+    attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
+    defer cancel()
+
+    res := kp.client.ProduceSync(attemptCtx, rec)
+    writeErr := res.FirstErr()
+    if kp.cfg.TransactionalID != "" {
+        if writeErr == nil {
+            if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
+                writeErr = err
+            }
+        } else {
+            _ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
+        }
+    }
+    return writeErr
 }
 
 func (kp *KafkaPublisher) shouldRetry(err error) bool {
