@@ -4,7 +4,13 @@ service:
   host: localhost
 
 log:
-  level: debug
+  level: trace
+
+pprof:
+  enabled: true
+  addr: "127.0.0.1:6060"
+  block_profile_rate: 0
+  mutex_profile_fraction: 0
 
 redis:
   host: localhost
@@ -48,3 +54,5 @@ kafka:
   retry_max_backoff_ms: 2000
   retry_jitter: 0.2
   write_timeout_seconds: 10
+  producer_compression: zstd
+  producer_batch_max_bytes: 5242880

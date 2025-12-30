@@ -1,7 +1,8 @@
 package main
 
 import (
-	"sync"
+    "context"
+    "sync"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
@@ -60,9 +61,10 @@ func main() {
 	logger = applog.NewAppDefaultLogger()
 	valid = validator.New()
 
-	initComponents()
-	server = infra.StartServer(logger, &wg)
-	infra.InitRoutes(server)
+    initComponents()
+    stopPprof := infra.StartPprof(logger, &wg)
+    server = infra.StartServer(logger, &wg)
+    infra.InitRoutes(server)
 
 	if err := blockStreamReader.StartReadFromStream(); err != nil {
 		panic("Failed to start block stream reader: " + err.Error())
@@ -72,11 +74,12 @@ func main() {
 		panic("Failed to start block scanner: " + err.Error())
 	}
 
-	callBack := func() error {
-		logger.Info("Executing shutdown routines...")
-		blockScanner.StopScanning()
-		blockStreamReader.StopReadFromStream()
-		return nil
-	}
-	infra.ShutdownServer(logger, &wg, server, callBack)
+    callBack := func() error {
+        logger.Info("Executing shutdown routines...")
+        blockScanner.StopScanning()
+        blockStreamReader.StopReadFromStream()
+        _ = stopPprof(context.Background())
+        return nil
+    }
+    infra.ShutdownServer(logger, &wg, server, callBack)
 }

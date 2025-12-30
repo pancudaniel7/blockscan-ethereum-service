@@ -7,6 +7,12 @@ service:
 log:
   level: trace
 
+pprof:
+  enabled: false
+  addr: "127.0.0.1:6060"
+  block_profile_rate: 0
+  mutex_profile_fraction: 0
+
 redis:
   host: host.docker.internal
   port: 6380
@@ -51,6 +57,8 @@ kafka:
   retry_max_backoff_ms: 1500
   retry_jitter: 0.15
   write_timeout_seconds: 5
+  producer_compression: zstd
+  producer_batch_max_bytes: 5242880
 
 test:
   poll_interval_ms: 300
