@@ -3,16 +3,16 @@ package apperr
 import "fmt"
 
 const (
-    invalidArgumentCode = "INVALID_ARGUMENT"
-    notFoundCode        = "NOT_FOUND"
-    alreadyExistsCode   = "ALREADY_EXISTS"
-    notAuthorizedCode   = "NOT_AUTHORIZED"
-    internalErrorCode   = "INTERNAL_ERROR"
-    blockScanCode       = "BLOCKSCAN_ERROR"
-    blockStoreCode      = "BLOCKSTORE_ERROR"
-    blockStreamCode     = "BLOCKSTREAM_ERROR"
-    blockProcessCode    = "BLOCKPROCESS_ERROR"
-    blockPublishCode    = "BLOCKPUBLISH_ERROR"
+	invalidArgumentCode = "INVALID_ARGUMENT"
+	notFoundCode        = "NOT_FOUND"
+	alreadyExistsCode   = "ALREADY_EXISTS"
+	notAuthorizedCode   = "NOT_AUTHORIZED"
+	internalErrorCode   = "INTERNAL_ERROR"
+	blockScanCode       = "BLOCKSCAN_ERROR"
+	blockStoreCode      = "BLOCKSTORE_ERROR"
+	blockStreamCode     = "BLOCKSTREAM_ERROR"
+	blockProcessCode    = "BLOCKPROCESS_ERROR"
+	blockPublishCode    = "BLOCKPUBLISH_ERROR"
 )
 
 type messageCause struct {
@@ -120,22 +120,22 @@ func (e *BlockStreamErr) Error() string { return formatError(blockStreamCode, e.
 func (e *BlockStreamErr) Code() string  { return blockStreamCode }
 
 type BlockProcessErr struct {
-    messageCause
+	messageCause
 }
 
 func NewBlockProcessErr(msg string, cause error) *BlockProcessErr {
-    return &BlockProcessErr{messageCause: messageCause{Msg: msg, Cause: cause}}
+	return &BlockProcessErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
 
 func (e *BlockProcessErr) Error() string { return formatError(blockProcessCode, e.Msg, e.Cause) }
 func (e *BlockProcessErr) Code() string  { return blockProcessCode }
 
 type BlockPublishErr struct {
-    messageCause
+	messageCause
 }
 
 func NewBlockPublishErr(msg string, cause error) *BlockPublishErr {
-    return &BlockPublishErr{messageCause: messageCause{Msg: msg, Cause: cause}}
+	return &BlockPublishErr{messageCause: messageCause{Msg: msg, Cause: cause}}
 }
 
 func (e *BlockPublishErr) Error() string { return formatError(blockPublishCode, e.Msg, e.Cause) }

@@ -1,13 +1,13 @@
 package store
 
 import (
-    "context"
-    "crypto/tls"
-    "errors"
-    "net"
-    "strings"
-    "sync"
-    "time"
+	"context"
+	"crypto/tls"
+	"errors"
+	"net"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
@@ -15,7 +15,7 @@ import (
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 	"github.com/pingcap/failpoint"
-    "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9"
 )
 
 // FPFailBeforeAck simulates a crash immediately before acknowledging a consumed
@@ -39,10 +39,10 @@ type BlockStream struct {
 // NewBlockStream validates the Config, constructs a Redis client with optional
 // TLS, and returns an initialized BlockStream.
 func NewBlockStream(logger applog.AppLogger, wg *sync.WaitGroup, v *validator.Validate, cfg Config) (*BlockStream, error) {
-    if err := v.Struct(cfg); err != nil {
-        logger.Error("invalid redis config", "err", err)
-        return nil, err
-    }
+	if err := v.Struct(cfg); err != nil {
+		logger.Error("invalid redis config", "err", err)
+		return nil, err
+	}
 
 	addr := net.JoinHostPort(cfg.Host, cfg.Port)
 	opts := &redis.Options{
@@ -79,15 +79,15 @@ func (bs *BlockStream) SetHandler(handler port.StreamMessageHandler) {
 // then continuously reads new messages, dispatching each through the handler
 // and acknowledging on success. The consumer name is made unique per process.
 func (bs *BlockStream) StartReadFromStream() error {
-    bs.mu.Lock()
-    if bs.handler == nil {
-        bs.mu.Unlock()
-        return apperr.NewBlockStreamErr("stream handler is not configured", nil)
-    }
-    if bs.running {
-        bs.mu.Unlock()
-        return apperr.NewBlockStreamErr("block stream reader already running", nil)
-    }
+	bs.mu.Lock()
+	if bs.handler == nil {
+		bs.mu.Unlock()
+		return apperr.NewBlockStreamErr("stream handler is not configured", nil)
+	}
+	if bs.running {
+		bs.mu.Unlock()
+		return apperr.NewBlockStreamErr("block stream reader already running", nil)
+	}
 
 	consumerName := bs.cfg.Streams.ConsumerName
 
@@ -197,9 +197,9 @@ func (bs *BlockStream) processMessage(msg redis.XMessage) {
 		bs.logger.Error("Stream handler failed; leaving unacked for retry", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
 		return
 	}
-    failpoint.Inject(FPFailBeforeAck, func() {
-        bs.logger.Fatal("failpoint triggered: fail-before-ack", "stream", bs.cfg.Streams.Key, "id", msg.ID)
-    })
+	failpoint.Inject(FPFailBeforeAck, func() {
+		bs.logger.Fatal("failpoint triggered: fail-before-ack", "stream", bs.cfg.Streams.Key, "id", msg.ID)
+	})
 	bs.ackMessage(msg.ID)
 }
 

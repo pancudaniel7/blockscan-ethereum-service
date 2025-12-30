@@ -153,93 +153,145 @@ type fcallHook struct{ fn func(redis.Cmder) bool }
 
 func (h fcallHook) DialHook(next redis.DialHook) redis.DialHook { return next }
 func (h fcallHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
-    return next
+	return next
 }
 func (h fcallHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
-    return func(ctx context.Context, cmd redis.Cmder) error {
-        if cmd.FullName() == "fcall" || cmd.Name() == "fcall" {
-            if h.fn != nil {
-                if !h.fn(cmd) {
-                    return nil
-                }
-            }
-        }
-        return next(ctx, cmd)
-    }
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if cmd.FullName() == "fcall" || cmd.Name() == "fcall" {
+			if h.fn != nil {
+				if !h.fn(cmd) {
+					return nil
+				}
+			}
+		}
+		return next(ctx, cmd)
+	}
 }
 
 func TestStoreBlock_Table(t *testing.T) {
-    v := validator.New()
-    mkBlock := func() *entity.Block {
-        return &entity.Block{Hash: common.HexToHash("0x1"), Header: entity.Header{Number: 1}}
-    }
-    cases := []struct{
-        name string
-        hook func(*redis.Client)
-        blk  *entity.Block
-        wantStored bool
-        wantErr bool
-    }{
-        {name: "invalid_block_validation", blk: &entity.Block{}, wantStored: false, wantErr: true},
-        {name: "do_error", hook: func(c *redis.Client){ c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool { if cm, ok := cmd.(*redis.Cmd); ok { cm.SetErr(errors.New("boom")) }; return false }}) }, blk: mkBlock(), wantErr: true},
-        {name: "success_status_1", hook: func(c *redis.Client){ c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool { if cm, ok := cmd.(*redis.Cmd); ok { cm.SetVal([]interface{}{int64(1), "id-1"}) }; return false }}) }, blk: mkBlock(), wantStored: true},
-        {name: "exists_status_0_reason_EXISTS", hook: func(c *redis.Client){ c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool { if cm, ok := cmd.(*redis.Cmd); ok { cm.SetVal([]interface{}{int64(0), "EXISTS"}) }; return false }}) }, blk: mkBlock(), wantStored: false},
-        {name: "xadd_err_status_0_reason_XADD_ERR", hook: func(c *redis.Client){ c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool { if cm, ok := cmd.(*redis.Cmd); ok { cm.SetVal([]interface{}{int64(0), "XADD_ERR"}) }; return false }}) }, blk: mkBlock(), wantErr: true},
-        {name: "unknown_reason_status_0", hook: func(c *redis.Client){ c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool { if cm, ok := cmd.(*redis.Cmd); ok { cm.SetVal([]interface{}{int64(0), "OTHER"}) }; return false }}) }, blk: mkBlock(), wantErr: true},
-        {name: "unexpected_response_type", hook: func(c *redis.Client){ c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool { if cm, ok := cmd.(*redis.Cmd); ok { cm.SetVal("oops") }; return false }}) }, blk: mkBlock(), wantErr: true},
-        {name: "unexpected_status_type", hook: func(c *redis.Client){ c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool { if cm, ok := cmd.(*redis.Cmd); ok { cm.SetVal([]interface{}{"1", "id"}) }; return false }}) }, blk: mkBlock(), wantErr: true},
-    }
-    for _, tc := range cases {
-        t.Run(tc.name, func(t *testing.T) {
-            _, h, p := runMiniRedis(t)
-            logger := &testLogger{}
-            cfg := validLoggerConfig(h, p)
-            bl, err := NewBlockLogger(logger, nil, v, &cfg)
-            require.NoError(t, err)
-            if tc.hook != nil {
-                tc.hook(bl.rdb)
-            }
-            stored, err := bl.StoreBlock(context.Background(), tc.blk)
-            if tc.wantErr {
-                require.Error(t, err)
-                return
-            }
-            require.NoError(t, err)
-            require.Equal(t, tc.wantStored, stored)
-        })
-    }
+	v := validator.New()
+	mkBlock := func() *entity.Block {
+		return &entity.Block{Hash: common.HexToHash("0x1"), Header: entity.Header{Number: 1}}
+	}
+	cases := []struct {
+		name       string
+		hook       func(*redis.Client)
+		blk        *entity.Block
+		wantStored bool
+		wantErr    bool
+	}{
+		{name: "invalid_block_validation", blk: &entity.Block{}, wantStored: false, wantErr: true},
+		{name: "do_error", hook: func(c *redis.Client) {
+			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
+				if cm, ok := cmd.(*redis.Cmd); ok {
+					cm.SetErr(errors.New("boom"))
+				}
+				return false
+			}})
+		}, blk: mkBlock(), wantErr: true},
+		{name: "success_status_1", hook: func(c *redis.Client) {
+			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
+				if cm, ok := cmd.(*redis.Cmd); ok {
+					cm.SetVal([]interface{}{int64(1), "id-1"})
+				}
+				return false
+			}})
+		}, blk: mkBlock(), wantStored: true},
+		{name: "exists_status_0_reason_EXISTS", hook: func(c *redis.Client) {
+			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
+				if cm, ok := cmd.(*redis.Cmd); ok {
+					cm.SetVal([]interface{}{int64(0), "EXISTS"})
+				}
+				return false
+			}})
+		}, blk: mkBlock(), wantStored: false},
+		{name: "xadd_err_status_0_reason_XADD_ERR", hook: func(c *redis.Client) {
+			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
+				if cm, ok := cmd.(*redis.Cmd); ok {
+					cm.SetVal([]interface{}{int64(0), "XADD_ERR"})
+				}
+				return false
+			}})
+		}, blk: mkBlock(), wantErr: true},
+		{name: "unknown_reason_status_0", hook: func(c *redis.Client) {
+			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
+				if cm, ok := cmd.(*redis.Cmd); ok {
+					cm.SetVal([]interface{}{int64(0), "OTHER"})
+				}
+				return false
+			}})
+		}, blk: mkBlock(), wantErr: true},
+		{name: "unexpected_response_type", hook: func(c *redis.Client) {
+			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
+				if cm, ok := cmd.(*redis.Cmd); ok {
+					cm.SetVal("oops")
+				}
+				return false
+			}})
+		}, blk: mkBlock(), wantErr: true},
+		{name: "unexpected_status_type", hook: func(c *redis.Client) {
+			c.AddHook(fcallHook{fn: func(cmd redis.Cmder) bool {
+				if cm, ok := cmd.(*redis.Cmd); ok {
+					cm.SetVal([]interface{}{"1", "id"})
+				}
+				return false
+			}})
+		}, blk: mkBlock(), wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, h, p := runMiniRedis(t)
+			logger := &testLogger{}
+			cfg := validLoggerConfig(h, p)
+			bl, err := NewBlockLogger(logger, nil, v, &cfg)
+			require.NoError(t, err)
+			if tc.hook != nil {
+				tc.hook(bl.rdb)
+			}
+			stored, err := bl.StoreBlock(context.Background(), tc.blk)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantStored, stored)
+		})
+	}
 }
 
 func TestIsBlockPublished_Table(t *testing.T) {
-    v := validator.New()
-    cases := []struct{
-        name string
-        setup func(*testing.T, *BlockLogger)
-        hash string
-        want bool
-        wantErr bool
-    }{
-        {name: "false_when_not_exists", setup: func(t *testing.T, bl *BlockLogger) {}, hash: "0xabc", want: false},
-        {name: "true_after_store_marker", setup: func(t *testing.T, bl *BlockLogger) { _, err := bl.StorePublishedBlockHash(context.Background(), "0xdef"); require.NoError(t, err) }, hash: "0xdef", want: true},
-        {name: "empty_hash_rejected", setup: func(t *testing.T, bl *BlockLogger) {}, hash: " ", wantErr: true},
-    }
-    for _, tc := range cases {
-        t.Run(tc.name, func(t *testing.T) {
-            _, h, p := runMiniRedis(t)
-            logger := &testLogger{}
-            cfg := validLoggerConfig(h, p)
-            bl, err := NewBlockLogger(logger, nil, v, &cfg)
-            require.NoError(t, err)
-            tc.setup(t, bl)
-            got, err := bl.IsBlockPublished(context.Background(), tc.hash)
-            if tc.wantErr {
-                require.Error(t, err)
-                return
-            }
-            require.NoError(t, err)
-            require.Equal(t, tc.want, got)
-        })
-    }
+	v := validator.New()
+	cases := []struct {
+		name    string
+		setup   func(*testing.T, *BlockLogger)
+		hash    string
+		want    bool
+		wantErr bool
+	}{
+		{name: "false_when_not_exists", setup: func(t *testing.T, bl *BlockLogger) {}, hash: "0xabc", want: false},
+		{name: "true_after_store_marker", setup: func(t *testing.T, bl *BlockLogger) {
+			_, err := bl.StorePublishedBlockHash(context.Background(), "0xdef")
+			require.NoError(t, err)
+		}, hash: "0xdef", want: true},
+		{name: "empty_hash_rejected", setup: func(t *testing.T, bl *BlockLogger) {}, hash: " ", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, h, p := runMiniRedis(t)
+			logger := &testLogger{}
+			cfg := validLoggerConfig(h, p)
+			bl, err := NewBlockLogger(logger, nil, v, &cfg)
+			require.NoError(t, err)
+			tc.setup(t, bl)
+			got, err := bl.IsBlockPublished(context.Background(), tc.hash)
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestClusterHashTag_Table(t *testing.T) {

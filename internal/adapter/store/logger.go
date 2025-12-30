@@ -35,10 +35,10 @@ type BlockLogger struct {
 // NewBlockLogger creates a Redis client from the provided Config, validates the
 // configuration, optionally enables TLS, and returns an initialized BlockLogger.
 func NewBlockLogger(log applog.AppLogger, _ *sync.WaitGroup, v *validator.Validate, cfg *Config) (*BlockLogger, error) {
-    if err := v.Struct(cfg); err != nil {
-        log.Error("invalid redis config", "err", err)
-        return nil, apperr.NewBlockStoreErr("invalid redis config", err)
-    }
+	if err := v.Struct(cfg); err != nil {
+		log.Error("invalid redis config", "err", err)
+		return nil, apperr.NewBlockStoreErr("invalid redis config", err)
+	}
 
 	addr := net.JoinHostPort(cfg.Host, cfg.Port)
 	opts := &redis.Options{

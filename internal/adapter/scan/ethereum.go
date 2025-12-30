@@ -44,10 +44,10 @@ const fetchTimeout = 10 * time.Second
 // error messages. The provided wait group will be used to track the scan
 // goroutine lifecycle.
 func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg *Config, v *validator.Validate) (*EthereumScanner, error) {
-    if err := v.Struct(cfg); err != nil {
-        log.Error("invalid config", "err", err)
-        return nil, apperr.NewBlockScanErr("invalid config", err)
-    }
+	if err := v.Struct(cfg); err != nil {
+		log.Error("invalid config", "err", err)
+		return nil, apperr.NewBlockScanErr("invalid config", err)
+	}
 
 	s := &EthereumScanner{
 		log:    log,
@@ -283,20 +283,20 @@ outer:
 				client.Close()
 				continue outer
 			}
-            var handleCtx = ctx
-            var cancelHandle context.CancelFunc
-            if draining {
-                handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)
-            }
-            err = s.handleBlock(handleCtx, blk)
-            if cancelHandle != nil {
-                cancelHandle()
-            }
-            if err != nil {
-                s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
-                client.Close()
-                continue outer
-            }
+			var handleCtx = ctx
+			var cancelHandle context.CancelFunc
+			if draining {
+				handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)
+			}
+			err = s.handleBlock(handleCtx, blk)
+			if cancelHandle != nil {
+				cancelHandle()
+			}
+			if err != nil {
+				s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
+				client.Close()
+				continue outer
+			}
 			pendingHeights = pendingHeights[1:]
 		}
 	}

@@ -22,9 +22,9 @@ func StartServer(logger applog.AppLogger, wg *sync.WaitGroup) *fiber.App {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-        if err := app.Listen(fmt.Sprintf(":%s", port)); err != nil {
-            logger.Fatal("failed to start server", "err", err)
-        }
+		if err := app.Listen(fmt.Sprintf(":%s", port)); err != nil {
+			logger.Fatal("failed to start server", "err", err)
+		}
 	}()
 	return app
 }
@@ -38,17 +38,17 @@ func ShutdownServer(logger applog.AppLogger, wg *sync.WaitGroup, server *fiber.A
 	logger.Info("Shutdown signal received, stopping server...")
 
 	if processTerminationCallBack != nil {
-        if err := processTerminationCallBack(); err != nil {
-            logger.Error("server shutdown failed", "err", err)
-        }
+		if err := processTerminationCallBack(); err != nil {
+			logger.Error("server shutdown failed", "err", err)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-    if err := server.ShutdownWithContext(ctx); err != nil {
-        logger.Error("server shutdown failed", "err", err)
-    }
+	if err := server.ShutdownWithContext(ctx); err != nil {
+		logger.Error("server shutdown failed", "err", err)
+	}
 
 	wg.Wait()
 	logger.Info("Shutdown complete")
