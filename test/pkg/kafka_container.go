@@ -1,11 +1,12 @@
 package pkg
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"strconv"
-	"strings"
+    "context"
+    "errors"
+    "fmt"
+    "net"
+    "strconv"
+    "strings"
 
 	dockercfg "github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
@@ -35,15 +36,18 @@ func StartKafka(ctx context.Context, image string) (*KafkaContainer, error) {
 		}
 	}
 
-	clientHostPort := 9092
-	if bs := viper.GetStringSlice("kafka.brokers"); len(bs) > 0 {
-		if i := strings.LastIndexByte(bs[0], ':'); i > 0 {
-			if v, err := strconv.Atoi(bs[0][i+1:]); err == nil && v > 0 && v <= 65535 {
-				clientHostPort = v
-			}
-		}
-	}
-	clientPort := nat.Port(fmt.Sprintf("%d/tcp", clientHostPort))
+    clientHostPort := 9092
+    if bs := viper.GetStringSlice("kafka.brokers"); len(bs) > 0 {
+        if i := strings.LastIndexByte(bs[0], ':'); i > 0 {
+            if v, err := strconv.Atoi(bs[0][i+1:]); err == nil && v > 0 && v <= 65535 {
+                clientHostPort = v
+            }
+        }
+    }
+    clientHostPort = chooseFreePort(clientHostPort)
+    viper.Set("kafka.host_port", clientHostPort)
+    // Container listens on 9092 for PLAINTEXT_HOST; bind that to a free host port.
+    containerPort := nat.Port("9092/tcp")
 	env := map[string]string{
 		"KAFKA_NODE_ID":                                          "1",
 		"KAFKA_PROCESS_ROLES":                                    "broker,controller",
@@ -76,48 +80,52 @@ func StartKafka(ctx context.Context, image string) (*KafkaContainer, error) {
 			env[k] = v
 		}
 	}
-	req := tc.ContainerRequest{
-		Image:        img,
-		ExposedPorts: []string{string(clientPort)},
-		Env:          env,
-		WaitingFor:   wait.ForListeningPort(clientPort),
-	}
+    req := tc.ContainerRequest{
+        Image:        img,
+        ExposedPorts: []string{string(containerPort)},
+        Env:          env,
+        WaitingFor:   wait.ForListeningPort(containerPort),
+    }
 	req.HostConfigModifier = func(hc *dockercfg.HostConfig) {
-		if hc.PortBindings == nil {
-			hc.PortBindings = nat.PortMap{}
-		}
-		hc.PortBindings[clientPort] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: strconv.Itoa(clientHostPort)}}
-		hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
-	}
+        if hc.PortBindings == nil {
+            hc.PortBindings = nat.PortMap{}
+        }
+        hc.PortBindings[containerPort] = []nat.PortBinding{{HostIP: "0.0.0.0", HostPort: strconv.Itoa(clientHostPort)}}
+        hc.ExtraHosts = append(hc.ExtraHosts, "host.docker.internal:host-gateway")
+    }
 
-	ctr, err := tc.GenericContainer(ctx, tc.GenericContainerRequest{ContainerRequest: req, Started: true})
+    ctr, err := tc.GenericContainer(ctx, tc.GenericContainerRequest{ContainerRequest: req, Started: true})
 	if err != nil {
 		return nil, fmt.Errorf("start kafka dep: %w", err)
 	}
 	return &KafkaContainer{container: ctr}, nil
 }
 
+// chooseFreePort returns the preferred port if available on the host, otherwise
+// it asks the OS for an ephemeral port and returns that value.
+func chooseFreePort(preferred int) int {
+    l, err := net.Listen("tcp", "127.0.0.1:0")
+    if err != nil {
+        return preferred
+    }
+    defer l.Close()
+    if addr, ok := l.Addr().(*net.TCPAddr); ok {
+        return addr.Port
+    }
+    return preferred
+}
+
 func (k *KafkaContainer) Brokers(ctx context.Context) ([]string, error) {
-	host, err := k.container.Host(ctx)
-	if err != nil {
-		return nil, err
-	}
-	hostPort := viper.GetInt("kafka.host_port")
-	if hostPort <= 0 {
-		hostPort = 9092
-		if bs := viper.GetStringSlice("kafka.brokers"); len(bs) > 0 {
-			if i := strings.LastIndexByte(bs[0], ':'); i > 0 {
-				if v, err := strconv.Atoi(bs[0][i+1:]); err == nil {
-					hostPort = v
-				}
-			}
-		}
-	}
-	port, err := k.container.MappedPort(ctx, nat.Port(fmt.Sprintf("%d/tcp", hostPort)))
-	if err != nil {
-		return nil, err
-	}
-	return []string{fmt.Sprintf("%s:%s", host, port.Port())}, nil
+    host, err := k.container.Host(ctx)
+    if err != nil {
+        return nil, err
+    }
+    // Resolve mapped host port for container's PLAINTEXT_HOST 9092
+    port, err := k.container.MappedPort(ctx, nat.Port("9092/tcp"))
+    if err != nil {
+        return nil, err
+    }
+    return []string{fmt.Sprintf("%s:%s", host, port.Port())}, nil
 }
 
 // EnsureTopic creates a topic if it does not already exist.

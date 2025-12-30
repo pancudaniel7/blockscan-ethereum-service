@@ -41,7 +41,8 @@ ganache:
   chain_id: 31337
 
 kafka:
-  brokers: ["host.docker.internal:9092"]
+  brokers: ["host.docker.internal:29092"]
+  host_port: 29092
   topic: "block-upstream-topic"
   client_id: "blockscan-test"
   transactional_id: "blockscan-test-tx"

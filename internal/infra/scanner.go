@@ -21,12 +21,16 @@ func InitScanner(log applog.AppLogger, wg *sync.WaitGroup, v *validator.Validate
 		v = validator.New()
 	}
 
-	cfg := scan.Config{
-		WebSocketsURL:          viper.GetString("scanner.websocket_url"),
-		FinalizedBlocks:        viper.GetBool("scanner.finalized_blocks"),
-		FinalizedPollDelay:     uint64(viper.GetInt("scanner.finalized_poll_delay")),
-		FinalizedConfirmations: uint64(viper.GetInt("scanner.finalized_confirmations")),
-	}
+    cfg := scan.Config{
+        WebSocketsURL:          viper.GetString("scanner.websocket_url"),
+        FinalizedBlocks:        viper.GetBool("scanner.finalized_blocks"),
+        FinalizedPollDelay:     uint64(viper.GetInt("scanner.finalized_poll_delay")),
+        FinalizedConfirmations: uint64(viper.GetInt("scanner.finalized_confirmations")),
+        DialMaxRetryAttempts:      viper.GetInt("scanner.dial_max_retry_attempts"),
+        DialRetryInitialBackoffMS: viper.GetInt("scanner.dial_retry_initial_backoff_ms"),
+        DialRetryMaxBackoffMS:     viper.GetInt("scanner.dial_retry_max_backoff_ms"),
+        DialRetryJitter:           viper.GetFloat64("scanner.dial_retry_jitter"),
+    }
 
 	s, err := scan.NewEthereumScanner(log, wg, &cfg, v)
 	if err != nil {

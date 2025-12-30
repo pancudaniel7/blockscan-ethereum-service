@@ -49,15 +49,37 @@ func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg *Config, v
 		return nil, apperr.NewBlockScanErr("invalid config", err)
 	}
 
-	s := &EthereumScanner{
-		log:    log,
-		wg:     wg,
-		config: cfg,
-	}
+    s := &EthereumScanner{
+        log:    log,
+        wg:     wg,
+        config: cfg,
+    }
 	s.newClient = func(ctx context.Context) (ethereumClient, error) {
 		return ethclient.DialContext(ctx, cfg.WebSocketsURL)
 	}
-	return s, nil
+    s.dialRetryOpts = dialRetryOptionsFromConfig(cfg)
+
+    return s, nil
+}
+
+// dialRetryOptionsFromConfig builds retry options from the provided Config.
+func dialRetryOptionsFromConfig(cfg *Config) []pattern.RetryOption {
+    var opts []pattern.RetryOption
+    if cfg.DialMaxRetryAttempts > 0 {
+        opts = append(opts, pattern.WithMaxAttempts(cfg.DialMaxRetryAttempts))
+    } else {
+        opts = append(opts, pattern.WithInfiniteAttempts())
+    }
+    if cfg.DialRetryInitialBackoffMS > 0 {
+        opts = append(opts, pattern.WithInitialDelay(time.Duration(cfg.DialRetryInitialBackoffMS)*time.Millisecond))
+    }
+    if cfg.DialRetryMaxBackoffMS > 0 {
+        opts = append(opts, pattern.WithMaxDelay(time.Duration(cfg.DialRetryMaxBackoffMS)*time.Millisecond))
+    }
+    if cfg.DialRetryJitter > 0 {
+        opts = append(opts, pattern.WithJitter(cfg.DialRetryJitter))
+    }
+    return opts
 }
 
 // SetHandler registers the callback invoked for each fully fetched block.

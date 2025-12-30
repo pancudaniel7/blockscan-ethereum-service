@@ -33,6 +33,10 @@ scanner:
   finalized_blocks: false
   finalized_poll_delay: 15
   finalized_confirmations: 64
+  dial_max_retry_attempts: 0
+  dial_retry_initial_backoff_ms: 500
+  dial_retry_max_backoff_ms: 10000
+  dial_retry_jitter: 0.2
 
 kafka:
   brokers: ["localhost:9092"]
