@@ -105,7 +105,7 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		bps.log.Fatal("failpoint triggered: kafka-dedup-producer")
 	})
 
-	bps.log.Trace("Published block from Redis stream", "hash", block.Hash.Hex(), "number", block.Header.Number, "message_id", msg.ID)
+	bps.log.Info("Ack block from Redis stream", "hash", block.Hash.Hex(), "number", block.Header.Number, "message_id", msg.ID)
 	return nil
 }
 

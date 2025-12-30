@@ -5,6 +5,7 @@ import (
     "fmt"
     "log/slog"
     "os"
+    "path/filepath"
     "runtime"
     "strings"
 
@@ -21,7 +22,26 @@ func NewAppDefaultLogger() *DefaultLogger {
     levelStr := viper.GetString("log.level")
     level := parseLogLevel(levelStr)
     return &DefaultLogger{
-        logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level, AddSource: false})),
+        logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+            Level:     level,
+            AddSource: false,
+            ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+                if a.Key == slog.LevelKey {
+                    if lv, ok := a.Value.Any().(slog.Level); ok {
+                        if lv == slog.Level(-8) {
+                            a.Value = slog.StringValue("TRACE")
+                            return a
+                        }
+                        name := strings.ToUpper(lv.String())
+                        if i := strings.IndexAny(name, "+-"); i >= 0 {
+                            name = name[:i]
+                        }
+                        a.Value = slog.StringValue(name)
+                    }
+                }
+                return a
+            },
+        })),
     }
 }
 
@@ -79,7 +99,12 @@ func callerSource(skip int) string {
     if !ok {
         return ""
     }
-    return fmt.Sprintf("%s:%d", file, line)
+    dir := filepath.Base(filepath.Dir(file))
+    base := filepath.Base(file)
+    if dir == "." || dir == "" {
+        return fmt.Sprintf("%s:%d", base, line)
+    }
+    return fmt.Sprintf("%s/%s:%d", dir, base, line)
 }
 
 func parseLogLevel(s string) slog.Level {
