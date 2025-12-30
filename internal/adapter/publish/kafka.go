@@ -1,21 +1,21 @@
 package publish
 
 import (
-	"context"
-	"errors"
-	"net"
-	"strconv"
-	"time"
+    "context"
+    "errors"
+    "net"
+    "strconv"
+    "time"
 
-	"github.com/go-playground/validator/v10"
-	"github.com/twmb/franz-go/pkg/kerr"
-	"github.com/twmb/franz-go/pkg/kgo"
+    "github.com/go-playground/validator/v10"
+    "github.com/twmb/franz-go/pkg/kerr"
+    "github.com/twmb/franz-go/pkg/kgo"
 
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/core/entity"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 )
 
 const (
@@ -28,12 +28,20 @@ const (
 
 // KafkaPublisher represents the adapter responsible for publishing events to Kafka.
 type KafkaPublisher struct {
-	log          applog.AppLogger
-	client       *kgo.Client
-	cfg          Config
-	writeTimeout time.Duration
-	retryOpts    []pattern.RetryOption
+    log          applog.AppLogger
+    client       kgoClient
+    cfg          Config
+    writeTimeout time.Duration
+    retryOpts    []pattern.RetryOption
 }
+
+type kgoClient interface {
+    BeginTransaction() error
+    EndTransaction(context.Context, kgo.TransactionEndTry) error
+    ProduceSync(context.Context, ...*kgo.Record) kgo.ProduceResults
+}
+
+var newKgoClient = func(opts ...kgo.Opt) (kgoClient, error) { return kgo.NewClient(opts...) }
 
 // NewKafkaPublisher builds a Kafka-backed publisher with validated configuration and retry settings.
 func NewKafkaPublisher(log applog.AppLogger, cfg Config, v *validator.Validate) (*KafkaPublisher, error) {
@@ -66,10 +74,10 @@ func NewKafkaPublisher(log applog.AppLogger, cfg Config, v *validator.Validate) 
 	if cfg.TransactionalID != "" {
 		opts = append(opts, kgo.TransactionalID(cfg.TransactionalID))
 	}
-	client, err := kgo.NewClient(opts...)
-	if err != nil {
-		return nil, apperr.NewInvalidArgErr("failed to init kafka client", err)
-	}
+    client, err := newKgoClient(opts...)
+    if err != nil {
+        return nil, apperr.NewInvalidArgErr("failed to init kafka client", err)
+    }
 
 	kp := &KafkaPublisher{
 		log:          log,
@@ -96,14 +104,14 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 		return apperr.NewInvalidArgErr("block is required", nil)
 	}
 
-	payload, err := usecase.MarshalBlockJSON(block)
-	if err != nil {
-		kp.log.Error("Failed to marshal block payload", "err", err)
-		return apperr.NewBlockStreamErr("failed to marshal block payload", err)
-	}
+    payload, err := usecase.MarshalBlockJSON(block)
+    if err != nil {
+        kp.log.Error("Failed to marshal block payload", "err", err)
+        return apperr.NewBlockPublishErr("failed to marshal block payload", err)
+    }
 
 	rec := kp.buildRecord(block, payload, headers)
-	if err := pattern.Retry(ctx, func(attempt int) error {
+    if err := pattern.Retry(ctx, func(attempt int) error {
 		if kp.cfg.TransactionalID != "" {
 			if err := kp.client.BeginTransaction(); err != nil {
 				return err
@@ -113,17 +121,17 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 		attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
 		defer cancel()
 
-		res := kp.client.ProduceSync(attemptCtx, rec)
-		writeErr := res.FirstErr()
-		if kp.cfg.TransactionalID != "" {
-			if writeErr == nil {
-				if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
-					writeErr = err
-				}
-			} else {
-				_ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
-			}
-		}
+        res := kp.client.ProduceSync(attemptCtx, rec)
+        writeErr := res.FirstErr()
+        if kp.cfg.TransactionalID != "" {
+            if writeErr == nil {
+                if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
+                    writeErr = err
+                }
+            } else {
+                _ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
+            }
+        }
 
 		if writeErr != nil {
 			if kp.shouldRetry(writeErr) {
@@ -133,9 +141,9 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 			}
 		}
 		return writeErr
-	}, kp.retryOpts...); err != nil {
-		return apperr.NewBlockStreamErr("failed to publish block to kafka", err)
-	}
+    }, kp.retryOpts...); err != nil {
+        return apperr.NewBlockPublishErr("failed to publish block to kafka", err)
+    }
 
 	kp.log.Trace("Published block to Kafka", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number)
 	return nil

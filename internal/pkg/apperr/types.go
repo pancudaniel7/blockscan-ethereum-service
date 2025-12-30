@@ -12,6 +12,7 @@ const (
     blockStoreCode      = "BLOCKSTORE_ERROR"
     blockStreamCode     = "BLOCKSTREAM_ERROR"
     blockProcessCode    = "BLOCKPROCESS_ERROR"
+    blockPublishCode    = "BLOCKPUBLISH_ERROR"
 )
 
 type messageCause struct {
@@ -128,3 +129,14 @@ func NewBlockProcessErr(msg string, cause error) *BlockProcessErr {
 
 func (e *BlockProcessErr) Error() string { return formatError(blockProcessCode, e.Msg, e.Cause) }
 func (e *BlockProcessErr) Code() string  { return blockProcessCode }
+
+type BlockPublishErr struct {
+    messageCause
+}
+
+func NewBlockPublishErr(msg string, cause error) *BlockPublishErr {
+    return &BlockPublishErr{messageCause: messageCause{Msg: msg, Cause: cause}}
+}
+
+func (e *BlockPublishErr) Error() string { return formatError(blockPublishCode, e.Msg, e.Cause) }
+func (e *BlockPublishErr) Code() string  { return blockPublishCode }
