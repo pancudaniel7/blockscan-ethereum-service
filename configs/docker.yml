@@ -1,0 +1,59 @@
+service:
+  name: "blockscan-service"
+  port: 8081
+
+log:
+  level: info
+
+pprof:
+  enabled: true
+  addr: "0.0.0.0:6060"
+  block_profile_rate: 0
+  mutex_profile_fraction: 0
+
+redis:
+  host: redis
+  port: 6379
+  db: 0
+  password: ""
+  use_tls: false
+  pool_size: 16
+  max_retries: 3
+  dial_timeout_seconds: 5
+  streams:
+    key: "blocks"
+    consumer_group: "blockstream-consumers-local"
+    consumer_name: "blockstream-local"
+    read_count: 1
+    read_block_timeout_seconds: 5
+    claim_idle_seconds: 30
+  lock:
+    dedup_prefix: "block"
+    block_ttl_seconds: 300
+    dedup_publish_block_prefix: "published"
+    publish_block_ttl_seconds: 300
+
+scanner:
+  websocket_url: ""
+  finalized_blocks: false
+  finalized_poll_delay: 15
+  finalized_confirmations: 64
+  dial_max_retry_attempts: 0
+  dial_retry_initial_backoff_ms: 500
+  dial_retry_max_backoff_ms: 10000
+  dial_retry_jitter: 0.2
+
+kafka:
+  brokers: ["kafka:19092"]
+  topic: "block-upstream-topic"
+  client_id: "blockscan-local"
+  transactional_id: "blockscan-local-tx"
+  max_retry_attempts: 5
+  retry_initial_backoff_ms: 200
+  retry_max_backoff_ms: 2000
+  retry_jitter: 0.2
+  write_timeout_seconds: 10
+  producer_compression: zstd
+  producer_batch_max_bytes: 5242880
+  max_record_bytes: 20971520
+

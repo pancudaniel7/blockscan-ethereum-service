@@ -98,6 +98,84 @@ services:
     networks: [stack]
     ports: ["18080:80"]
 
+  prometheus:
+    container_name: prometheus
+    image: prom/prometheus:v3.8.1
+    networks: [stack]
+    ports: ["9090:9090"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+
+  loki:
+    container_name: loki
+    image: grafana/loki:3.6.3
+    networks: [stack]
+    ports: ["3100:3100"]
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+
+  promtail:
+    container_name: promtail
+    image: grafana/promtail:3.6.3
+    networks: [stack]
+    depends_on:
+      - loki
+    command: ["-config.file=/etc/promtail/config.yml"]
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - promtail-positions:/positions
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  grafana:
+    container_name: grafana
+    image: grafana/grafana:12.3.1
+    networks: [stack]
+    depends_on:
+      - prometheus
+      - loki
+    ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+
+  blockscan:
+    container_name: blockscan
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+    networks: [stack]
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-provisioner:
+        condition: service_started
+      redis-provisioner:
+        condition: service_started
+    environment:
+      - CONFIG_NAME=docker
+      - BSCAN_SCANNER_WEBSOCKET_URL=${BSCAN_SCANNER_WEBSOCKET_URL:-wss://ethereum.publicnode.com}
+    ports: ["18081:8081"]
+
 networks:
   stack:
     name: blockscan_local_stack
+
+volumes:
+  prometheus-data:
+  loki-data:
+  grafana-storage:
+  promtail-positions:
