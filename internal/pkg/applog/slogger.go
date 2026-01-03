@@ -21,28 +21,36 @@ type DefaultLogger struct {
 func NewAppDefaultLogger() *DefaultLogger {
     levelStr := viper.GetString("log.level")
     level := parseLogLevel(levelStr)
-    return &DefaultLogger{
-        logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-            Level:     level,
-            AddSource: false,
-            ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
-                if a.Key == slog.LevelKey {
-                    if lv, ok := a.Value.Any().(slog.Level); ok {
-                        if lv == slog.Level(-8) {
-                            a.Value = slog.StringValue("TRACE")
-                            return a
-                        }
-                        name := strings.ToUpper(lv.String())
-                        if i := strings.IndexAny(name, "+-"); i >= 0 {
-                            name = name[:i]
-                        }
-                        a.Value = slog.StringValue(name)
+    name := strings.TrimSpace(viper.GetString("service.name"))
+    instance := strings.TrimSpace(viper.GetString("service.instance"))
+    handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+        Level:     level,
+        AddSource: false,
+        ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+            if a.Key == slog.LevelKey {
+                if lv, ok := a.Value.Any().(slog.Level); ok {
+                    if lv == slog.Level(-8) {
+                        a.Value = slog.StringValue("TRACE")
+                        return a
                     }
+                    n := strings.ToUpper(lv.String())
+                    if i := strings.IndexAny(n, "+-"); i >= 0 {
+                        n = n[:i]
+                    }
+                    a.Value = slog.StringValue(n)
                 }
-                return a
-            },
-        })),
+            }
+            return a
+        },
+    })
+    base := slog.New(handler)
+    if name != "" {
+        base = base.With("service", name)
     }
+    if instance != "" {
+        base = base.With("instance", instance)
+    }
+    return &DefaultLogger{logger: base}
 }
 
 func (l *DefaultLogger) Info(msg string, args ...any) {
