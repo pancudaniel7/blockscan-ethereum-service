@@ -149,9 +149,10 @@ services:
     volumes:
       - grafana-storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
 
-  blockscan:
-    container_name: blockscan
+  blockscan-replica1:
+    container_name: blockscan-replica1
     build:
       context: ..
       dockerfile: build/Dockerfile
@@ -168,7 +169,35 @@ services:
     environment:
       - CONFIG_NAME=docker
       - BSCAN_SCANNER_WEBSOCKET_URL=${BSCAN_SCANNER_WEBSOCKET_URL:-wss://ethereum.publicnode.com}
+      - BSCAN_SERVICE_NAME=blockscan
+      - BSCAN_SERVICE_INSTANCE=blockscan-service-replica1
+      - BSCAN_KAFKA_TRANSACTIONAL_ID=blockscan-replica1-tx
+      - BSCAN_KAFKA_CLIENT_ID=blockscan-replica1
     ports: ["18081:8081"]
+
+  blockscan-replica2:
+    container_name: blockscan-replica2
+    build:
+      context: ..
+      dockerfile: build/Dockerfile
+    networks: [stack]
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      kafka-provisioner:
+        condition: service_started
+      redis-provisioner:
+        condition: service_started
+    environment:
+      - CONFIG_NAME=docker
+      - BSCAN_SCANNER_WEBSOCKET_URL=${BSCAN_SCANNER_WEBSOCKET_URL:-wss://ethereum.publicnode.com}
+      - BSCAN_SERVICE_NAME=blockscan
+      - BSCAN_SERVICE_INSTANCE=blockscan-service-replica2
+      - BSCAN_KAFKA_TRANSACTIONAL_ID=blockscan-replica2-tx
+      - BSCAN_KAFKA_CLIENT_ID=blockscan-replica2
+    ports: ["18082:8081"]
 
 networks:
   stack:

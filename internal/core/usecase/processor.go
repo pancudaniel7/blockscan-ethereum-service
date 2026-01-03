@@ -49,7 +49,7 @@ func (bps *BlockProcessorService) StoreBlock(ctx context.Context, block *types.B
 	if stored {
 		bps.log.Info("Stored block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex())
 	} else {
-		bps.log.Warn("Block already stored (dedup hit)", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex())
+		bps.log.Trace("Block already stored (dedup hit)", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex())
 	}
 
 	return nil

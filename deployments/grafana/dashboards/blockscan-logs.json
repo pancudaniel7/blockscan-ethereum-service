@@ -1,0 +1,112 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": "Loki",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+      "id": 1,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showCommonLabels": false,
+        "showLabels": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "expr": "{service=\"$service\", instance=~\"$instance\"}",
+          "refId": "A"
+        }
+      ],
+      "title": "Blockscan Logs",
+      "type": "logs"
+    },
+    {
+      "datasource": "Loki",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops/min"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+      "id": 2,
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "single" }
+      },
+      "targets": [
+        {
+          "expr": "sum by (instance) (count_over_time({service=\"$service\", instance=~\"$instance\"}[1m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Log Lines per Minute",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["blockscan", "logs"],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "hide": 0,
+        "datasource": "Loki",
+        "definition": "label_values({service=~\".+\"}, service)",
+        "query": "label_values({service=~\".+\"}, service)",
+        "refresh": 1,
+        "includeAll": false,
+        "multi": false,
+        "options": [],
+        "current": {
+          "selected": true,
+          "text": "blockscan",
+          "value": "blockscan"
+        }
+      },
+      {
+        "name": "instance",
+        "type": "query",
+        "hide": 0,
+        "datasource": "Loki",
+        "definition": "label_values({service=\"$service\"}, instance)",
+        "query": "label_values({service=\"$service\"}, instance)",
+        "refresh": 1,
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": true,
+        "options": [],
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        }
+      }
+    ]
+  },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Blockscan Logs",
+  "version": 1,
+  "weekStart": ""
+}

@@ -32,4 +32,11 @@ scrape_configs:
         replacement: /var/lib/docker/containers/$1/$1-json.log
     pipeline_stages:
       - docker: {}
-
+      - logfmt:
+          mapping:
+            service:
+            instance:
+            level:
+      - labels:
+          service:
+          instance:

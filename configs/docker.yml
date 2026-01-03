@@ -1,6 +1,7 @@
 service:
   name: "blockscan-service"
   port: 8081
+  instance: "blockscan-service-replica1"
 
 log:
   level: info
@@ -56,4 +57,3 @@ kafka:
   producer_compression: zstd
   producer_batch_max_bytes: 5242880
   max_record_bytes: 20971520
-
