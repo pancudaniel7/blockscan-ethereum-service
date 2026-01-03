@@ -4,7 +4,7 @@ service:
   host: localhost
 
 log:
-  level: trace
+  level: info
 
 pprof:
   enabled: true
