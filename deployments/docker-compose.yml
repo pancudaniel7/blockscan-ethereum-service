@@ -92,12 +92,6 @@ services:
       - REDIS_HOSTS=local:redis:6379
     ports: ["6380:8081"]
 
-  hello-echo:
-    container_name: hello-echo
-    image: ealen/echo-server:0.9.2
-    networks: [stack]
-    ports: ["18080:80"]
-
   prometheus:
     container_name: prometheus
     image: prom/prometheus:v3.8.1
@@ -151,6 +145,34 @@ services:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
 
+
+  telegraf:
+    container_name: telegraf
+    image: telegraf:1.31-alpine
+    networks: [stack]
+    user: root
+    depends_on:
+      - redis
+      - kafka
+      - docker-proxy
+    restart: unless-stopped
+    volumes:
+      - ./telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  docker-proxy:
+    container_name: docker-proxy
+    image: tecnativa/docker-socket-proxy:v0.4.2
+    networks: [stack]
+    environment:
+      - CONTAINERS=1
+      - EVENTS=1
+      - INFO=1
+      - VERSION=1
+      - NETWORKS=1
+      - TASKS=1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
   blockscan-replica1:
     container_name: blockscan-replica1
     build:

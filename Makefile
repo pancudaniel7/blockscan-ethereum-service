@@ -49,5 +49,6 @@ docker-down:
 
 docker-up:
 	docker compose --verbose -f $(COMPOSE_FILE) up -d \
-		redis redis-provisioner kafka kafka-provisioner kafka-ui redis-commander hello-echo \
-		prometheus loki promtail grafana blockscan-replica1 blockscan-replica2
+		redis redis-provisioner kafka kafka-provisioner kafka-ui redis-commander \
+		prometheus loki promtail grafana telegraf docker-proxy \
+		blockscan-replica1 blockscan-replica2

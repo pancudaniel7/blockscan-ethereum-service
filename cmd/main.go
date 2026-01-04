@@ -9,7 +9,7 @@ import (
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/infra"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 )
 
 var (
@@ -64,6 +64,7 @@ func main() {
     initComponents()
     stopPprof := infra.StartPprof(logger, &wg)
     server = infra.StartServer(logger, &wg)
+    infra.InitMetrics(server)
     infra.InitRoutes(server)
 
 	if err := blockStreamReader.StartReadFromStream(); err != nil {

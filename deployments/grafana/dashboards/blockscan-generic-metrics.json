@@ -1,0 +1,125 @@
+{
+  "style": "dark",
+  "fiscalYearStartMonth": 0,
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "blockscan",
+          "selected": true,
+          "value": "blockscan"
+        },
+        "type": "constant",
+        "hide": 2,
+        "name": "service",
+        "query": "blockscan"
+      },
+      {
+        "definition": "label_values(docker_container_mem_usage{job=\"telegraf\",container_name=~\"blockscan-replica(1|2)\"}, container_name)",
+        "name": "replica",
+        "allValue": ".*",
+        "refresh": 1,
+        "current": {
+          "text": "All",
+          "selected": true,
+          "value": ".*"
+        },
+        "datasource": "Prometheus",
+        "query": "label_values(docker_container_mem_usage{job=\"telegraf\",container_name=~\"blockscan-replica(1|2)\"}, container_name)",
+        "type": "query",
+        "includeAll": true
+      }
+    ]
+  },
+  "links": [],
+  "tags": [
+    "blockscan",
+    "infra"
+  ],
+  "graphTooltip": 0,
+  "title": "Blockscan Container Metrics",
+  "editable": true,
+  "refresh": "5s",
+  "liveNow": false,
+  "version": 1,
+  "time": {
+    "to": "now",
+    "from": "now-15m"
+  },
+  "schemaVersion": 38,
+  "panels": [
+    {
+      "fieldConfig": {
+        "overrides": [],
+        "defaults": {}
+      },
+      "title": "CPU Usage (%) by replica",
+      "targets": [
+        {
+          "expr": "avg by (container_name) (rate(docker_container_cpu_usage_total{job=\"telegraf\", container_name=~\"blockscan-replica.*\", container_name=~\"$replica\"}[2m]) / 1e9 * 100)",
+          "refId": "A"
+        }
+      ],
+      "datasource": "Prometheus",
+      "gridPos": {
+        "y": 0,
+        "h": 8,
+        "w": 24,
+        "x": 0
+      },
+      "type": "timeseries",
+      "id": 1
+    },
+    {
+      "fieldConfig": {
+        "overrides": [],
+        "defaults": {
+          "unit": "bytes"
+        }
+      },
+      "title": "Memory Usage (bytes) by replica",
+      "targets": [
+        {
+          "expr": "avg by (container_name) (docker_container_mem_usage{job=\"telegraf\", container_name=~\"blockscan-replica.*\", container_name=~\"$replica\"})",
+          "refId": "A"
+        }
+      ],
+      "datasource": "Prometheus",
+      "gridPos": {
+        "y": 8,
+        "h": 8,
+        "w": 24,
+        "x": 0
+      },
+      "type": "timeseries",
+      "id": 2
+    },
+    {
+      "fieldConfig": {
+        "overrides": [],
+        "defaults": {
+          "unit": "Bps"
+        }
+      },
+      "title": "Network IO Total (bytes/s) by replica",
+      "targets": [
+        {
+          "expr": "sum by (container_name) ((rate(docker_container_net_rx_bytes{job=\"telegraf\", container_name=~\"blockscan-replica(1|2)\", container_name=~\"$replica\"}[1m]) + rate(docker_container_net_tx_bytes{job=\"telegraf\", container_name=~\"blockscan-replica(1|2)\", container_name=~\"$replica\"}[1m])))",
+          "refId": "A"
+        }
+      ],
+      "datasource": "Prometheus",
+      "gridPos": {
+        "y": 16,
+        "h": 8,
+        "w": 24,
+        "x": 0
+      },
+      "type": "timeseries",
+      "id": 3
+    }
+  ],
+  "annotations": {
+    "list": []
+  }
+}
