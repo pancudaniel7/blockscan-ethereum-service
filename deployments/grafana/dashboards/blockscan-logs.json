@@ -40,7 +40,8 @@
       "datasource": "Loki",
       "fieldConfig": {
         "defaults": {
-          "unit": "ops/min"
+          "unit": "ops/min",
+          "custom": { "axisLabel": "Lines/min" }
         },
         "overrides": []
       },
@@ -53,7 +54,8 @@
       "targets": [
         {
           "expr": "sum by (instance) (count_over_time({service=\"$service\", instance=~\"$instance\"}[1m]))",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
       "title": "Log Lines per Minute",

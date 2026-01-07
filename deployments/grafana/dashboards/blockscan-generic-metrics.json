@@ -51,13 +51,17 @@
     {
       "fieldConfig": {
         "overrides": [],
-        "defaults": {}
+        "defaults": {
+          "unit": "percent",
+          "custom": { "axisLabel": "CPU (%)" }
+        }
       },
       "title": "CPU Usage (%) by replica",
       "targets": [
         {
-          "expr": "avg by (container_name) (rate(docker_container_cpu_usage_total{job=\"telegraf\", container_name=~\"blockscan-replica.*\", container_name=~\"$replica\"}[2m]) / 1e9 * 100)",
-          "refId": "A"
+          "expr": "avg by (container_name) (docker_container_cpu_usage_percent{job=\"telegraf\", container_name=~\"blockscan-replica.*\", container_name=~\"$replica\"})",
+          "refId": "A",
+          "legendFormat": "{{container_name}}"
         }
       ],
       "datasource": "Prometheus",
@@ -74,14 +78,16 @@
       "fieldConfig": {
         "overrides": [],
         "defaults": {
-          "unit": "bytes"
+          "unit": "bytes",
+          "custom": { "axisLabel": "Memory (bytes)" }
         }
       },
       "title": "Memory Usage (bytes) by replica",
       "targets": [
         {
           "expr": "avg by (container_name) (docker_container_mem_usage{job=\"telegraf\", container_name=~\"blockscan-replica.*\", container_name=~\"$replica\"})",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{container_name}}"
         }
       ],
       "datasource": "Prometheus",
@@ -98,14 +104,16 @@
       "fieldConfig": {
         "overrides": [],
         "defaults": {
-          "unit": "Bps"
+          "unit": "Bps",
+          "custom": { "axisLabel": "Bytes/s" }
         }
       },
       "title": "Network IO Total (bytes/s) by replica",
       "targets": [
         {
           "expr": "sum by (container_name) ((rate(docker_container_net_rx_bytes{job=\"telegraf\", container_name=~\"blockscan-replica(1|2)\", container_name=~\"$replica\"}[1m]) + rate(docker_container_net_tx_bytes{job=\"telegraf\", container_name=~\"blockscan-replica(1|2)\", container_name=~\"$replica\"}[1m])))",
-          "refId": "A"
+          "refId": "A",
+          "legendFormat": "{{container_name}}"
         }
       ],
       "datasource": "Prometheus",
