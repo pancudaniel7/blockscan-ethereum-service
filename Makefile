@@ -48,7 +48,8 @@ docker-down:
 	docker compose --verbose -f $(COMPOSE_FILE) down
 
 docker-up:
+	docker compose --verbose -f $(COMPOSE_FILE) build blockscan-replica1 blockscan-replica2
+	docker compose --verbose -f $(COMPOSE_FILE) up -d --build --force-recreate grafana blockscan-replica1 blockscan-replica2
 	docker compose --verbose -f $(COMPOSE_FILE) up -d \
 		redis redis-provisioner kafka kafka-provisioner kafka-ui redis-commander \
-		prometheus loki promtail grafana telegraf docker-proxy \
-		blockscan-replica1 blockscan-replica2
+		prometheus loki promtail telegraf docker-proxy
