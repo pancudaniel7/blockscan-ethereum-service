@@ -33,7 +33,7 @@
           "refId": "A"
         }
       ],
-      "title": "Blockscan Logs",
+      "title": "Logs",
       "type": "logs"
     },
     {
@@ -108,7 +108,7 @@
   "time": { "from": "now-15m", "to": "now" },
   "timepicker": {},
   "timezone": "",
-  "title": "Blockscan Logs",
+  "title": "Logs",
   "version": 1,
   "weekStart": ""
 }
