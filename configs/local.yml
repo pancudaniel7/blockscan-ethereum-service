@@ -1,5 +1,5 @@
 service:
-  name: "blockscan-service"
+  name: "blockscan"
   instance: "blockscan-local"
   port: 8081
   host: localhost
