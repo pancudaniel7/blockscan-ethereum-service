@@ -1,0 +1,20 @@
+{
+  "style": "dark",
+  "fiscalYearStartMonth": 0,
+  "templating": {
+    "list": [
+      { "current": {"selected": true}, "query": "prometheus", "hide": 2, "name": "DS_PROMETHEUS", "type": "datasource" }
+    ]
+  },
+  "links": [],
+  "tags": ["blockscan", "insights"],
+  "graphTooltip": 0,
+  "title": "Blockscan Insights",
+  "editable": true,
+  "refresh": "5s",
+  "liveNow": false,
+  "time": { "to": "now", "from": "now-6h" },
+  "schemaVersion": 38,
+  "panels": [],
+  "annotations": { "list": [] }
+}
