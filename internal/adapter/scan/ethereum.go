@@ -1,20 +1,23 @@
 package scan
 
 import (
-	"context"
-	"math/big"
-	"sync"
-	"time"
+    "context"
+    "math/big"
+    "sync"
+    "time"
 
-	"github.com/ethereum/go-ethereum"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/ethclient"
-	"github.com/ethereum/go-ethereum/rpc"
-	"github.com/go-playground/validator/v10"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+    "github.com/ethereum/go-ethereum"
+    "github.com/ethereum/go-ethereum/core/types"
+    "github.com/ethereum/go-ethereum/ethclient"
+    "github.com/ethereum/go-ethereum/rpc"
+    "github.com/go-playground/validator/v10"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+    "errors"
+    "net"
 )
 
 // EthereumScanner scans Ethereum blocks either by subscribing to new heads or
@@ -49,37 +52,37 @@ func NewEthereumScanner(log applog.AppLogger, wg *sync.WaitGroup, cfg *Config, v
 		return nil, apperr.NewBlockScanErr("invalid config", err)
 	}
 
-    s := &EthereumScanner{
-        log:    log,
-        wg:     wg,
-        config: cfg,
-    }
+	s := &EthereumScanner{
+		log:    log,
+		wg:     wg,
+		config: cfg,
+	}
 	s.newClient = func(ctx context.Context) (ethereumClient, error) {
 		return ethclient.DialContext(ctx, cfg.WebSocketsURL)
 	}
-    s.dialRetryOpts = dialRetryOptionsFromConfig(cfg)
+	s.dialRetryOpts = dialRetryOptionsFromConfig(cfg)
 
-    return s, nil
+	return s, nil
 }
 
 // dialRetryOptionsFromConfig builds retry options from the provided Config.
 func dialRetryOptionsFromConfig(cfg *Config) []pattern.RetryOption {
-    var opts []pattern.RetryOption
-    if cfg.DialMaxRetryAttempts > 0 {
-        opts = append(opts, pattern.WithMaxAttempts(cfg.DialMaxRetryAttempts))
-    } else {
-        opts = append(opts, pattern.WithInfiniteAttempts())
-    }
-    if cfg.DialRetryInitialBackoffMS > 0 {
-        opts = append(opts, pattern.WithInitialDelay(time.Duration(cfg.DialRetryInitialBackoffMS)*time.Millisecond))
-    }
-    if cfg.DialRetryMaxBackoffMS > 0 {
-        opts = append(opts, pattern.WithMaxDelay(time.Duration(cfg.DialRetryMaxBackoffMS)*time.Millisecond))
-    }
-    if cfg.DialRetryJitter > 0 {
-        opts = append(opts, pattern.WithJitter(cfg.DialRetryJitter))
-    }
-    return opts
+	var opts []pattern.RetryOption
+	if cfg.DialMaxRetryAttempts > 0 {
+		opts = append(opts, pattern.WithMaxAttempts(cfg.DialMaxRetryAttempts))
+	} else {
+		opts = append(opts, pattern.WithInfiniteAttempts())
+	}
+	if cfg.DialRetryInitialBackoffMS > 0 {
+		opts = append(opts, pattern.WithInitialDelay(time.Duration(cfg.DialRetryInitialBackoffMS)*time.Millisecond))
+	}
+	if cfg.DialRetryMaxBackoffMS > 0 {
+		opts = append(opts, pattern.WithMaxDelay(time.Duration(cfg.DialRetryMaxBackoffMS)*time.Millisecond))
+	}
+	if cfg.DialRetryJitter > 0 {
+		opts = append(opts, pattern.WithJitter(cfg.DialRetryJitter))
+	}
+	return opts
 }
 
 // SetHandler registers the callback invoked for each fully fetched block.
@@ -129,77 +132,93 @@ func (s *EthereumScanner) StartScanning() error {
 // until the provided context is canceled.
 func (s *EthereumScanner) scanNewHeads(ctx context.Context) {
 outer:
-	for {
-		select {
-		case <-ctx.Done():
-			s.log.Trace("Stopping Ethereum scan...")
-			return
-		default:
-		}
+    for {
+        select {
+        case <-ctx.Done():
+            imetrics.Scanner().Connected.Set(0)
+            s.log.Trace("Stopping Ethereum scan...")
+            return
+        default:
+        }
 
-		client, err := s.connectClient(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			s.log.Error("Failed to connect to Ethereum node", "err", err)
-			continue
-		}
+        client, err := s.connectClient(ctx)
+        if err != nil {
+            if ctx.Err() != nil {
+                return
+            }
+            s.log.Error("Failed to connect to Ethereum node", "err", err)
+            continue
+        }
 
-		headers := make(chan *types.Header, 32)
-		sub, err := client.SubscribeNewHead(ctx, headers)
-		if err != nil {
-			s.log.Error("Subscription to new heads failed", "err", err)
-			client.Close()
-			continue
-		}
+        headers := make(chan *types.Header, 32)
+        sub, err := client.SubscribeNewHead(ctx, headers)
+        if err != nil {
+            imetrics.Scanner().ReconnectsTotal.WithLabelValues("subscribe").Inc()
+            s.log.Error("Subscription to new heads failed", "err", err)
+            client.Close()
+            continue
+        }
 
-		s.log.Trace("Subscribed to new Ethereum heads")
+        imetrics.Scanner().Connected.Set(1)
+        s.log.Trace("Subscribed to new Ethereum heads")
 
-	inner:
-		for {
-			select {
-			case <-ctx.Done():
-				sub.Unsubscribe()
-				client.Close()
-				return
+    inner:
+        for {
+            select {
+            case <-ctx.Done():
+                imetrics.Scanner().Connected.Set(0)
+                sub.Unsubscribe()
+                client.Close()
+                return
 
-			case err := <-sub.Err():
-				s.log.Warn("Subscription error, will reconnect", "err", err)
-				sub.Unsubscribe()
-				client.Close()
-				break inner
+            case err := <-sub.Err():
+                imetrics.Scanner().ReconnectsTotal.WithLabelValues("subscribe").Inc()
+                imetrics.Scanner().Connected.Set(0)
+                s.log.Warn("Subscription error, will reconnect", "err", err)
+                sub.Unsubscribe()
+                client.Close()
+                break inner
 
-			case header, ok := <-headers:
-				if !ok {
-					s.log.Warn("Headers channel closed — restarting subscription")
-					sub.Unsubscribe()
-					client.Close()
-					break inner
-				}
+            case header, ok := <-headers:
+                if !ok {
+                    imetrics.Scanner().ReconnectsTotal.WithLabelValues("subscribe").Inc()
+                    imetrics.Scanner().Connected.Set(0)
+                    s.log.Warn("Headers channel closed — restarting subscription")
+                    sub.Unsubscribe()
+                    client.Close()
+                    break inner
+                }
 
-				target := header.Number.Uint64()
-				start := s.lastProcessed + 1
-				if s.lastProcessed == 0 {
-					start = target
-				}
-				for h := start; h <= target; h++ {
-					blk, err := s.fetchBlockByNumber(ctx, client, h)
-					if err != nil {
-						s.log.Warn("Failed to fetch block; will reconnect", "number", h, "err", err)
-						sub.Unsubscribe()
-						client.Close()
-						break inner
-					}
-					if err := s.handleBlock(ctx, blk); err != nil {
-						s.log.Error("Block handler failed (new heads); will reconnect", "number", blk.NumberU64(), "err", err)
-						sub.Unsubscribe()
-						client.Close()
-						break inner
-					}
-				}
-			}
-		}
+                target := header.Number.Uint64()
+                start := s.lastProcessed + 1
+                if s.lastProcessed == 0 {
+                    start = target
+                }
+                for h := start; h <= target; h++ {
+                    fetchStart := time.Now()
+                    blk, err := s.fetchBlockByNumber(ctx, client, h)
+                    if err != nil {
+                        imetrics.Scanner().FetchLatencyMS.WithLabelValues("new_head").Observe(float64(time.Since(fetchStart).Milliseconds()))
+                        imetrics.Scanner().FetchErrorsTotal.WithLabelValues("new_head", classifyScanError(err)).Inc()
+                        imetrics.Scanner().ReconnectsTotal.WithLabelValues("fetch").Inc()
+                        s.log.Warn("Failed to fetch block; will reconnect", "number", h, "err", err)
+                        sub.Unsubscribe()
+                        client.Close()
+                        break inner
+                    }
+                    imetrics.Scanner().FetchLatencyMS.WithLabelValues("new_head").Observe(float64(time.Since(fetchStart).Milliseconds()))
+                    if err := s.handleBlock(ctx, blk); err != nil {
+                        imetrics.Scanner().HandlerErrorsTotal.WithLabelValues("new_head").Inc()
+                        imetrics.Scanner().ReconnectsTotal.WithLabelValues("handler").Inc()
+                        s.log.Error("Block handler failed (new heads); will reconnect", "number", blk.NumberU64(), "err", err)
+                        sub.Unsubscribe()
+                        client.Close()
+                        break inner
+                    }
+                    imetrics.Scanner().ScannedBlocksTotal.WithLabelValues("new_head", "ethereum").Inc()
+                }
+            }
+        }
 
 		continue outer
 	}
@@ -210,11 +229,11 @@ outer:
 // the context is canceled and will sleep between iterations according to the
 // configured poll delay.
 func (s *EthereumScanner) scanFinalized(ctx context.Context) {
-	s.log.Trace("Scanning finalized Ethereum blocks (polling mode)")
+    s.log.Trace("Scanning finalized Ethereum blocks (polling mode)")
 
-	pollDelay := time.Duration(s.config.FinalizedPollDelay) * time.Second
-	pendingHeights := make([]uint64, 0)
-	draining := false
+    pollDelay := time.Duration(s.config.FinalizedPollDelay) * time.Second
+    pendingHeights := make([]uint64, 0)
+    draining := false
 
 outer:
 	for {
@@ -227,16 +246,17 @@ outer:
 		default:
 		}
 
-		client, err := s.connectClient(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
-			}
-			s.log.Warn("Failed to connect to Ethereum node, trying again...", "err", err)
-			continue
-		}
+        client, err := s.connectClient(ctx)
+        if err != nil {
+            if ctx.Err() != nil {
+                return
+            }
+            s.log.Warn("Failed to connect to Ethereum node, trying again...", "err", err)
+            continue
+        }
 
-		s.log.Trace("Connected to Ethereum node for finalized polling")
+        imetrics.Scanner().Connected.Set(1)
+        s.log.Trace("Connected to Ethereum node for finalized polling")
 
 		for {
 			if len(pendingHeights) == 0 && !draining {
@@ -292,36 +312,44 @@ outer:
 				effectiveTO = drainFetchTimeout
 			}
 			fetchCtx, cancelFetch = context.WithTimeout(context.Background(), effectiveTO)
-			blk, err := client.BlockByNumber(fetchCtx, new(big.Int).SetUint64(height))
-			cancelFetch()
-			if err != nil {
-				if ctx.Err() != nil {
-					s.log.Trace("Context canceled while fetching finalized block, continuing drain", "height", height)
-					draining = true
-					client.Close()
-					continue outer
-				}
-				s.log.Warn("Failed to fetch finalized block; will reconnect and retry", "height", height, "err", err)
-				client.Close()
-				continue outer
-			}
-			var handleCtx = ctx
-			var cancelHandle context.CancelFunc
-			if draining {
-				handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)
-			}
-			err = s.handleBlock(handleCtx, blk)
-			if cancelHandle != nil {
-				cancelHandle()
-			}
-			if err != nil {
-				s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
-				client.Close()
-				continue outer
-			}
-			pendingHeights = pendingHeights[1:]
-		}
-	}
+            fetchStart := time.Now()
+            blk, err := client.BlockByNumber(fetchCtx, new(big.Int).SetUint64(height))
+            cancelFetch()
+            if err != nil {
+                imetrics.Scanner().FetchLatencyMS.WithLabelValues("finalized").Observe(float64(time.Since(fetchStart).Milliseconds()))
+                imetrics.Scanner().FetchErrorsTotal.WithLabelValues("finalized", classifyScanError(err)).Inc()
+                imetrics.Scanner().ReconnectsTotal.WithLabelValues("fetch").Inc()
+                if ctx.Err() != nil {
+                    s.log.Trace("Context canceled while fetching finalized block, continuing drain", "height", height)
+                    draining = true
+                    client.Close()
+                    continue outer
+                }
+                s.log.Warn("Failed to fetch finalized block; will reconnect and retry", "height", height, "err", err)
+                client.Close()
+                continue outer
+            }
+            var handleCtx = ctx
+            var cancelHandle context.CancelFunc
+            if draining {
+                handleCtx, cancelHandle = context.WithTimeout(context.Background(), effectiveTO)
+            }
+            err = s.handleBlock(handleCtx, blk)
+            if cancelHandle != nil {
+                cancelHandle()
+            }
+            if err != nil {
+                imetrics.Scanner().HandlerErrorsTotal.WithLabelValues("finalized").Inc()
+                imetrics.Scanner().ReconnectsTotal.WithLabelValues("handler").Inc()
+                s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
+                client.Close()
+                continue outer
+            }
+            imetrics.Scanner().FetchLatencyMS.WithLabelValues("finalized").Observe(float64(time.Since(fetchStart).Milliseconds()))
+            imetrics.Scanner().ScannedBlocksTotal.WithLabelValues("finalized", "ethereum").Inc()
+            pendingHeights = pendingHeights[1:]
+        }
+    }
 }
 
 // currentFinalizedNumber returns the current finalized block height using the
@@ -366,37 +394,52 @@ func (s *EthereumScanner) StopScanning() {
 // connectClient dials to the Ethereum node with exponential backoff and jitter
 // until success or context cancellation.
 func (s *EthereumScanner) connectClient(ctx context.Context) (ethereumClient, error) {
-	var client ethereumClient
-	opts := []pattern.RetryOption{
-		pattern.WithInfiniteAttempts(),
-		pattern.WithInitialDelay(500 * time.Millisecond),
-		pattern.WithMaxDelay(10 * time.Second),
-		pattern.WithMultiplier(2.0),
-		pattern.WithJitter(0.2),
-	}
-	if len(s.dialRetryOpts) > 0 {
-		opts = append(opts, s.dialRetryOpts...)
-	}
-	err := pattern.Retry(
-		ctx,
-		func(attempt int) error {
-			if s.newClient == nil {
-				return apperr.NewBlockScanErr("client factory not configured", nil)
-			}
-			c, err := s.newClient(ctx)
-			if err != nil {
-				s.log.Warn("Ethereum dial failed", "attempt", attempt, "err", err)
-				return err
-			}
-			client = c
-			return nil
-		},
-		opts...,
-	)
-	if err != nil {
-		return nil, err
-	}
-	return client, nil
+    var client ethereumClient
+    opts := []pattern.RetryOption{
+        pattern.WithInfiniteAttempts(),
+        pattern.WithInitialDelay(500 * time.Millisecond),
+        pattern.WithMaxDelay(10 * time.Second),
+        pattern.WithMultiplier(2.0),
+        pattern.WithJitter(0.2),
+    }
+    if len(s.dialRetryOpts) > 0 {
+        opts = append(opts, s.dialRetryOpts...)
+    }
+    err := pattern.Retry(
+        ctx,
+        func(attempt int) error {
+            if s.newClient == nil {
+                return apperr.NewBlockScanErr("client factory not configured", nil)
+            }
+            c, err := s.newClient(ctx)
+            if err != nil {
+                imetrics.Scanner().ReconnectsTotal.WithLabelValues("dial").Inc()
+                s.log.Warn("Ethereum dial failed", "attempt", attempt, "err", err)
+                return err
+            }
+            client = c
+            return nil
+        },
+        opts...,
+    )
+    if err != nil {
+        return nil, err
+    }
+    return client, nil
+}
+
+func classifyScanError(err error) string {
+    if err == nil {
+        return "none"
+    }
+    if errors.Is(err, context.DeadlineExceeded) {
+        return "timeout"
+    }
+    var netErr net.Error
+    if errors.As(err, &netErr) {
+        return "network"
+    }
+    return "rpc"
 }
 
 // withFetchTimeout returns a context with a timeout for RPC calls.
