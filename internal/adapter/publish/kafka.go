@@ -17,6 +17,7 @@ import (
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+	imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 )
 
@@ -179,27 +180,39 @@ func (kp *KafkaPublisher) publishWithRetry(ctx context.Context, rec *kgo.Record,
 }
 
 func (kp *KafkaPublisher) produceOnce(ctx context.Context, rec *kgo.Record) error {
-	if kp.cfg.TransactionalID != "" {
-		if err := kp.client.BeginTransaction(); err != nil {
-			return err
-		}
-	}
+    start := time.Now()
+    if kp.cfg.TransactionalID != "" {
+        if err := kp.client.BeginTransaction(); err != nil {
+            imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
+            imetrics.Kafka().ProduceAttemptsTotal.Inc()
+            imetrics.Kafka().ProduceErrorsTotal.WithLabelValues("txn_begin").Inc()
+            return err
+        }
+    }
 
-	attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
-	defer cancel()
+    attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
+    defer cancel()
 
-	res := kp.client.ProduceSync(attemptCtx, rec)
-	writeErr := res.FirstErr()
-	if kp.cfg.TransactionalID != "" {
-		if writeErr == nil {
-			if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
-				writeErr = err
-			}
-		} else {
-			_ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
-		}
-	}
-	return writeErr
+    res := kp.client.ProduceSync(attemptCtx, rec)
+    writeErr := res.FirstErr()
+    if kp.cfg.TransactionalID != "" {
+        if writeErr == nil {
+            if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
+                writeErr = err
+            }
+        } else {
+            _ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
+        }
+    }
+
+    imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
+    imetrics.Kafka().ProduceAttemptsTotal.Inc()
+    if writeErr == nil {
+        imetrics.Kafka().ProduceSuccessTotal.Inc()
+    } else {
+        imetrics.Kafka().ProduceErrorsTotal.WithLabelValues(classifyKafkaError(writeErr)).Inc()
+    }
+    return writeErr
 }
 
 func (kp *KafkaPublisher) shouldRetry(err error) bool {
@@ -256,7 +269,28 @@ func producerCompressionOpt(name string) (kgo.Opt, bool) {
 		return kgo.ProducerBatchCompression(kgo.ZstdCompression()), true
 	case "none":
 		return nil, false
-	default:
-		return nil, false
-	}
+    default:
+        return nil, false
+    }
+}
+
+// classifyKafkaError returns a coarse error type for produce attempts.
+func classifyKafkaError(err error) string {
+    if err == nil {
+        return "none"
+    }
+    if errors.Is(err, context.DeadlineExceeded) {
+        return "timeout"
+    }
+    var netErr net.Error
+    if errors.As(err, &netErr) {
+        return "network"
+    }
+    if kerr.IsRetriable(err) {
+        return "retriable"
+    }
+    if errors.Is(err, kerr.TopicAuthorizationFailed) || errors.Is(err, kerr.ClusterAuthorizationFailed) {
+        return "auth"
+    }
+    return "other"
 }
