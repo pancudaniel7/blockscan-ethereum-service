@@ -2,7 +2,7 @@ package metrics
 
 import "github.com/prometheus/client_golang/prometheus"
 
-var reg prometheus.Registerer = prometheus.DefaultRegisterer
+var reg = prometheus.DefaultRegisterer
 
 func Registerer() prometheus.Registerer { return reg }
 

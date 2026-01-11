@@ -185,9 +185,6 @@ func (bs *BlockStream) StopReadFromStream() {
 	cancel()
 }
 
-// processMessage invokes the configured handler for the given message and
-// acknowledges it on success. The handler is executed with a background
-// context, so the last in-flight message can be complete during graceful shutdown.
 func (bs *BlockStream) processMessage(msg redis.XMessage) {
 	handler := bs.handler
 	if handler == nil {
@@ -203,8 +200,6 @@ func (bs *BlockStream) processMessage(msg redis.XMessage) {
 	bs.ackMessage(msg.ID)
 }
 
-// ensureConsumerGroup creates the consumer group if it does not exist. It is
-// safe to call concurrently and idempotently initializes the stream key.
 func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
 	err := bs.rdb.XGroupCreateMkStream(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, "0").Err()
 	if err == nil {
@@ -218,8 +213,6 @@ func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
 	return apperr.NewBlockStreamErr("failed to ensure consumer group", err)
 }
 
-// ensureGroupWithRetry keeps attempting to create/verify the consumer group
-// until it succeeds or the provided context is canceled.
 func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
 	return pattern.Retry(
 		ctx,
@@ -244,9 +237,6 @@ func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
 	)
 }
 
-// drainPending drains this consumer's pending messages without blocking.
-// Returns nil when the backlog is empty, context errors to stop the reader,
-// or any other error encountered during the read.
 func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, readCount int) error {
 	for {
 		streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
@@ -282,9 +272,6 @@ func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, re
 	}
 }
 
-// reclaimStale uses XAUTOCLAIM to take ownership of messages that have been
-// pending on other consumers longer than minIdle. It processes messages and
-// stops when the claim cursor is exhausted.
 func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, readCount int, minIdle time.Duration) error {
 	start := "0-0"
 	for {
@@ -316,9 +303,6 @@ func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, re
 	}
 }
 
-// readNew blocks for up to blockTimeout to read new messages for this consumer
-// and processes them when available. Returns redis.Nil when no messages were
-// delivered in the given timeout.
 func (bs *BlockStream) readNew(ctx context.Context, consumerName string, readCount int, blockTimeout time.Duration) error {
 	streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
 		Group:    bs.cfg.Streams.ConsumerGroup,
@@ -344,23 +328,20 @@ func (bs *BlockStream) readNew(ctx context.Context, consumerName string, readCou
 	return nil
 }
 
-// ackMessage acknowledges a message by ID with small bounded retries.
 func (bs *BlockStream) ackMessage(id string) {
 	if id == "" {
 		return
 	}
-	shouldRetry := func(err error) bool {
-		if err == nil {
-			return false
-		}
-		if errors.Is(err, context.Canceled) {
-			return false
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
-			return true
-		}
-		return true
-	}
+    shouldRetry := func(err error) bool {
+        switch {
+        case err == nil, errors.Is(err, context.Canceled):
+            return false
+        case errors.Is(err, context.DeadlineExceeded):
+            return true
+        default:
+            return true
+        }
+    }
 	_ = pattern.Retry(
 		context.Background(),
 		func(attempt int) error {
@@ -377,8 +358,6 @@ func (bs *BlockStream) ackMessage(id string) {
 	)
 }
 
-// isNoGroupErr detects Redis stream consumer group errors (NOGROUP) to allow
-// the reader to self-heal by recreating the group when it is missing.
 func isNoGroupErr(err error) bool {
 	if err == nil {
 		return false

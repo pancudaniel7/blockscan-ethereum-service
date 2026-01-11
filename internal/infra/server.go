@@ -14,6 +14,11 @@ import (
 	"github.com/spf13/viper"
 )
 
+func NewServer(logger applog.AppLogger) *fiber.App {
+	an := viper.GetString("service.name")
+	return fiber.New(fiber.Config{AppName: an})
+}
+
 func StartServer(logger applog.AppLogger, wg *sync.WaitGroup) *fiber.App {
 	an := viper.GetString("service.name")
 	app := fiber.New(fiber.Config{AppName: an})
@@ -27,6 +32,20 @@ func StartServer(logger applog.AppLogger, wg *sync.WaitGroup) *fiber.App {
 		}
 	}()
 	return app
+}
+
+func RunServer(logger applog.AppLogger, wg *sync.WaitGroup, app *fiber.App) {
+	if app == nil {
+		return
+	}
+	port := viper.GetString("service.port")
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := app.Listen(fmt.Sprintf(":%s", port)); err != nil {
+			logger.Fatal("failed to start server", "err", err)
+		}
+	}()
 }
 
 func ShutdownServer(logger applog.AppLogger, wg *sync.WaitGroup, server *fiber.App, processTerminationCallBack func() error) {

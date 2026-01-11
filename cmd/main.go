@@ -1,15 +1,15 @@
 package main
 
 import (
-    "context"
-    "sync"
+	"context"
+	"sync"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v3"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/infra"
-    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
 )
 
 var (
@@ -61,11 +61,12 @@ func main() {
 	logger = applog.NewAppDefaultLogger()
 	valid = validator.New()
 
-    initComponents()
-    stopPprof := infra.StartPprof(logger, &wg)
-    server = infra.StartServer(logger, &wg)
-    infra.InitMetrics(server)
-    infra.InitRoutes(server)
+	initComponents()
+	stopPprof := infra.StartPprof(logger, &wg)
+	server = infra.NewServer(logger)
+	infra.InitMetrics(server)
+	infra.InitRoutes(server)
+	infra.RunServer(logger, &wg, server)
 
 	if err := blockStreamReader.StartReadFromStream(); err != nil {
 		panic("Failed to start block stream reader: " + err.Error())
@@ -75,12 +76,12 @@ func main() {
 		panic("Failed to start block scanner: " + err.Error())
 	}
 
-    callBack := func() error {
-        logger.Info("Executing shutdown routines...")
-        blockScanner.StopScanning()
-        blockStreamReader.StopReadFromStream()
-        _ = stopPprof(context.Background())
-        return nil
-    }
-    infra.ShutdownServer(logger, &wg, server, callBack)
+	callBack := func() error {
+		logger.Info("Executing shutdown routines...")
+		blockScanner.StopScanning()
+		blockStreamReader.StopReadFromStream()
+		_ = stopPprof(context.Background())
+		return nil
+	}
+	infra.ShutdownServer(logger, &wg, server, callBack)
 }

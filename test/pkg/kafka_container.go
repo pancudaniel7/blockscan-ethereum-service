@@ -101,14 +101,12 @@ func StartKafka(ctx context.Context, image string) (*KafkaContainer, error) {
 	return &KafkaContainer{container: ctr}, nil
 }
 
-// chooseFreePort returns the preferred port if available on the host, otherwise
-// it asks the OS for an ephemeral port and returns that value.
 func chooseFreePort(preferred int) int {
     l, err := net.Listen("tcp", "127.0.0.1:0")
     if err != nil {
         return preferred
     }
-    defer l.Close()
+    defer func() { _ = l.Close() }()
     if addr, ok := l.Addr().(*net.TCPAddr); ok {
         return addr.Port
     }

@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
+    "regexp"
 
 	imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
 )
@@ -17,10 +18,17 @@ func InitMetrics(app *fiber.App) {
 	if app == nil {
 		return
 	}
-	if promRegistry == nil {
-		promRegistry = prometheus.NewRegistry()
-		promRegistry.MustRegister(collectors.NewGoCollector())
-		promRegistry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
+    if promRegistry == nil {
+        promRegistry = prometheus.NewRegistry()
+        promRegistry.MustRegister(collectors.NewGoCollector(
+            collectors.WithGoCollectorRuntimeMetrics(
+                collectors.MetricsGC,
+                collectors.MetricsMemory,
+                collectors.MetricsScheduler,
+                collectors.GoRuntimeMetricsRule{Matcher: regexp.MustCompile("^/cpu/classes/.*")},
+            ),
+        ))
+        promRegistry.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{ReportErrors: true}))
 		svc := viper.GetString("service.name")
 		inst := viper.GetString("service.instance")
 
@@ -32,6 +40,7 @@ func InitMetrics(app *fiber.App) {
 		imetrics.UseRegisterer(prefixed)
 		_ = imetrics.Kafka()
 		_ = imetrics.Scanner()
+		_ = imetrics.Process()
 	}
 	h := promhttp.InstrumentMetricHandler(promRegistry, promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{}))
 	app.Get("/metrics", adaptor.HTTPHandler(h))

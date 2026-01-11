@@ -114,32 +114,32 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 		return apperr.NewInvalidArgErr("block is required", nil)
 	}
 
-    payload, err := usecase.MarshalBlockJSON(block)
-    if err != nil {
-        kp.log.Error("Failed to marshal block payload", "err", err)
-        return apperr.NewBlockPublishErr("failed to marshal block payload", err)
-    }
+	payload, err := usecase.MarshalBlockJSON(block)
+	if err != nil {
+		kp.log.Error("Failed to marshal block payload", "err", err)
+		return apperr.NewBlockPublishErr("failed to marshal block payload", err)
+	}
 
-    size := len(payload)
-    kp.log.Trace("Prepared block payload", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number, "value_bytes", size)
-    if kp.cfg.MaxRecordBytes > 0 && size > kp.cfg.MaxRecordBytes {
-        kp.log.Warn(
-            "Kafka record rejected by size guard",
-            "topic", kp.cfg.Topic,
-            "hash", block.Hash.Hex(),
-            "number", block.Header.Number,
-            "value_bytes", size,
-            "limit_bytes", kp.cfg.MaxRecordBytes,
-        )
-        return apperr.NewBlockPublishErr("payload exceeds max_record_bytes", nil)
-    }
+	size := len(payload)
+	kp.log.Trace("Prepared block payload", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number, "value_bytes", size)
+	if kp.cfg.MaxRecordBytes > 0 && size > kp.cfg.MaxRecordBytes {
+		kp.log.Warn(
+			"Kafka record rejected by size guard",
+			"topic", kp.cfg.Topic,
+			"hash", block.Hash.Hex(),
+			"number", block.Header.Number,
+			"value_bytes", size,
+			"limit_bytes", kp.cfg.MaxRecordBytes,
+		)
+		return apperr.NewBlockPublishErr("payload exceeds max_record_bytes", nil)
+	}
 
 	rec := kp.buildRecord(block, payload, headers)
 	if err := kp.publishWithRetry(ctx, rec, block); err != nil {
 		return apperr.NewBlockPublishErr("failed to publish block to kafka", err)
 	}
 
-    kp.log.Trace("Published block to Kafka", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number, "value_bytes", size)
+	kp.log.Trace("Published block to Kafka", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number, "value_bytes", size)
 	return nil
 }
 
@@ -180,64 +180,56 @@ func (kp *KafkaPublisher) publishWithRetry(ctx context.Context, rec *kgo.Record,
 }
 
 func (kp *KafkaPublisher) produceOnce(ctx context.Context, rec *kgo.Record) error {
-    start := time.Now()
-    if kp.cfg.TransactionalID != "" {
-        if err := kp.client.BeginTransaction(); err != nil {
-            imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
-            imetrics.Kafka().ProduceAttemptsTotal.Inc()
-            imetrics.Kafka().ProduceErrorsTotal.WithLabelValues("txn_begin").Inc()
-            return err
-        }
-    }
+	start := time.Now()
+	if kp.cfg.TransactionalID != "" {
+		if err := kp.client.BeginTransaction(); err != nil {
+			imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
+			imetrics.Kafka().ProduceAttemptsTotal.Inc()
+			imetrics.Kafka().ProduceErrorsTotal.WithLabelValues("txn_begin").Inc()
+			return err
+		}
+	}
 
-    attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
-    defer cancel()
+	attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
+	defer cancel()
 
-    res := kp.client.ProduceSync(attemptCtx, rec)
-    writeErr := res.FirstErr()
-    if kp.cfg.TransactionalID != "" {
-        if writeErr == nil {
-            if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
-                writeErr = err
-            }
-        } else {
-            _ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
-        }
-    }
+	res := kp.client.ProduceSync(attemptCtx, rec)
+	writeErr := res.FirstErr()
+	if kp.cfg.TransactionalID != "" {
+		if writeErr == nil {
+			if err := kp.client.EndTransaction(context.Background(), kgo.TryCommit); err != nil {
+				writeErr = err
+			}
+		} else {
+			_ = kp.client.EndTransaction(context.Background(), kgo.TryAbort)
+		}
+	}
 
-    imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
-    imetrics.Kafka().ProduceAttemptsTotal.Inc()
-    if writeErr == nil {
-        imetrics.Kafka().ProduceSuccessTotal.Inc()
-    } else {
-        imetrics.Kafka().ProduceErrorsTotal.WithLabelValues(classifyKafkaError(writeErr)).Inc()
-    }
-    return writeErr
+	imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
+	imetrics.Kafka().ProduceAttemptsTotal.Inc()
+	if writeErr == nil {
+		imetrics.Kafka().ProduceSuccessTotal.Inc()
+	} else {
+		imetrics.Kafka().ProduceErrorsTotal.WithLabelValues(classifyKafkaError(writeErr)).Inc()
+	}
+	return writeErr
 }
 
 func (kp *KafkaPublisher) shouldRetry(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.Canceled) {
-		return false
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-
 	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
 
-	if kerr.IsRetriable(err) {
+	switch {
+	case err == nil, errors.Is(err, context.Canceled):
+		return false
+	case errors.Is(err, context.DeadlineExceeded),
+		kerr.IsRetriable(err),
+		errors.Is(err, kerr.UnknownTopicOrPartition):
 		return true
-	}
-	if errors.Is(err, kerr.UnknownTopicOrPartition) {
+	case errors.As(err, &netErr):
 		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func millisecondsOrDefault(ms int, fallback time.Duration) time.Duration {
@@ -254,9 +246,6 @@ func secondsOrDefault(seconds int, fallback time.Duration) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-// producerCompressionOpt maps a human-friendly compression name to a
-// corresponding kgo option. Returns (opt, true) when the name is recognized,
-// otherwise (zero, false) meaning no compression override.
 func producerCompressionOpt(name string) (kgo.Opt, bool) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "gzip":
@@ -269,28 +258,25 @@ func producerCompressionOpt(name string) (kgo.Opt, bool) {
 		return kgo.ProducerBatchCompression(kgo.ZstdCompression()), true
 	case "none":
 		return nil, false
-    default:
-        return nil, false
-    }
+	default:
+		return nil, false
+	}
 }
 
-// classifyKafkaError returns a coarse error type for produce attempts.
 func classifyKafkaError(err error) string {
-    if err == nil {
-        return "none"
-    }
-    if errors.Is(err, context.DeadlineExceeded) {
-        return "timeout"
-    }
-    var netErr net.Error
-    if errors.As(err, &netErr) {
-        return "network"
-    }
-    if kerr.IsRetriable(err) {
-        return "retriable"
-    }
-    if errors.Is(err, kerr.TopicAuthorizationFailed) || errors.Is(err, kerr.ClusterAuthorizationFailed) {
-        return "auth"
-    }
-    return "other"
+	var netErr net.Error
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.As(err, &netErr):
+		return "network"
+	case kerr.IsRetriable(err):
+		return "retriable"
+	case errors.Is(err, kerr.TopicAuthorizationFailed) || errors.Is(err, kerr.ClusterAuthorizationFailed):
+		return "auth"
+	default:
+		return "other"
+	}
 }

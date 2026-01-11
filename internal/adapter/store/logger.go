@@ -142,10 +142,6 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 	return stored, nil
 }
 
-// clusterHashTag extracts the hashtag used by Redis Cluster for a given key.
-// If the key contains a {...} substring, returns the text inside the first
-// braces; otherwise returns the full key. Using the returned value inside
-// braces ensures both keys target the same hash slot.
 func clusterHashTag(key string) string {
 	start := strings.IndexByte(key, '{')
 	if start >= 0 {

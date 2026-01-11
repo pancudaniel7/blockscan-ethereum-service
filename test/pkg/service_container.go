@@ -122,7 +122,6 @@ func BuildAndStartService(ctx context.Context, serviceName, tag, failpoint strin
 	return &ServiceContainer{container: ctr}, nil
 }
 
-// dockerImageExists returns true if the image tag exists locally.
 func dockerImageExists(tag string) bool {
 	tag = strings.TrimSpace(tag)
 	if tag == "" {
@@ -135,7 +134,6 @@ func dockerImageExists(tag string) bool {
 	return true
 }
 
-// buildServiceImage builds the service image using build/Dockerfile.test and tags it.
 func buildServiceImage(tag, failpoint string) error {
 	args := []string{"build", "--pull", "--no-cache", "-f", "build/Dockerfile.test", "-t", tag, "."}
 	cmd := exec.Command("docker", args...)
@@ -166,7 +164,6 @@ func EnsureServiceImageBuilt(t *testing.T) {
 	require.NoErrorf(t, err, "docker build failed: %s", string(out))
 }
 
-// removeDockerImage removes a local image tag if present.
 func removeDockerImage(tag string) error {
 	if strings.TrimSpace(tag) == "" {
 		return nil
