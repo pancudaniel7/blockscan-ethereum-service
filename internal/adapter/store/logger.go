@@ -80,11 +80,12 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 	ttlMs := strconv.FormatInt(int64(bs.cfg.Lock.BlockTTLSeconds*1000), 10)
 	id := "*"
 
-	fields := []string{
-		"hash", block.Hash.Hex(),
-		"number", strconv.FormatUint(block.Header.Number, 10),
-		"payload", string(payload),
-	}
+    fields := []string{
+        "hash", block.Hash.Hex(),
+        "number", strconv.FormatUint(block.Header.Number, 10),
+        "payload", string(payload),
+        "scanned_at_ms", strconv.FormatInt(time.Now().UnixMilli(), 10),
+    }
 	args := make([]interface{}, 0, 7+len(fields))
 	args = append(args, "FCALL", "add_block", 2, setKey, bs.cfg.Streams.Key, ttlMs, id)
 	for _, f := range fields {

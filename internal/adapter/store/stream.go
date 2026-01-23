@@ -1,21 +1,23 @@
 package store
 
 import (
-	"context"
-	"crypto/tls"
-	"errors"
-	"net"
-	"strings"
-	"sync"
-	"time"
+    "context"
+    "crypto/tls"
+    "errors"
+    "net"
+    "strconv"
+    "strings"
+    "sync"
+    "time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
-	"github.com/pingcap/failpoint"
-	"github.com/redis/go-redis/v9"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
+    imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
+    "github.com/pingcap/failpoint"
+    "github.com/redis/go-redis/v9"
 )
 
 // FPFailBeforeAck simulates a crash immediately before acknowledging a consumed
@@ -186,18 +188,19 @@ func (bs *BlockStream) StopReadFromStream() {
 }
 
 func (bs *BlockStream) processMessage(msg redis.XMessage) {
-	handler := bs.handler
-	if handler == nil {
-		return
-	}
-	if err := handler(context.Background(), msg); err != nil {
-		bs.logger.Error("Stream handler failed; leaving unacked for retry", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
-		return
-	}
-	failpoint.Inject(FPFailBeforeAck, func() {
-		bs.logger.Fatal("failpoint triggered: fail-before-ack", "stream", bs.cfg.Streams.Key, "id", msg.ID)
-	})
-	bs.ackMessage(msg.ID)
+    handler := bs.handler
+    if handler == nil {
+        return
+    }
+    if err := handler(context.Background(), msg); err != nil {
+        bs.logger.Error("Stream handler failed; leaving unacked for retry", "stream", bs.cfg.Streams.Key, "id", msg.ID, "err", err)
+        return
+    }
+    failpoint.Inject(FPFailBeforeAck, func() {
+        bs.logger.Fatal("failpoint triggered: fail-before-ack", "stream", bs.cfg.Streams.Key, "id", msg.ID)
+    })
+    bs.ackMessage(msg.ID)
+    bs.observeEndToEndLatency(msg)
 }
 
 func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
@@ -359,8 +362,45 @@ func (bs *BlockStream) ackMessage(id string) {
 }
 
 func isNoGroupErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	return strings.Contains(strings.ToUpper(err.Error()), "NOGROUP")
+    if err == nil {
+        return false
+    }
+    return strings.Contains(strings.ToUpper(err.Error()), "NOGROUP")
+}
+
+// extractScannedAtMillis returns the enqueue timestamp in milliseconds since epoch
+// if the stream message contains a "scanned_at_ms" field.
+func extractScannedAtMillis(msg redis.XMessage) (int64, bool) {
+    v, ok := msg.Values["scanned_at_ms"]
+    if !ok {
+        return 0, false
+    }
+    switch t := v.(type) {
+    case string:
+        n, err := strconv.ParseInt(t, 10, 64)
+        if err != nil {
+            return 0, false
+        }
+        return n, true
+    case []byte:
+        n, err := strconv.ParseInt(string(t), 10, 64)
+        if err != nil {
+            return 0, false
+        }
+        return n, true
+    default:
+        return 0, false
+    }
+}
+
+// observeEndToEndLatency reads the scanned_at_ms field and records the pipeline latency metric.
+func (bs *BlockStream) observeEndToEndLatency(msg redis.XMessage) {
+    if scannedAt, ok := extractScannedAtMillis(msg); ok {
+        now := time.Now().UnixMilli()
+        d := now - scannedAt
+        if d < 0 {
+            d = 0
+        }
+        imetrics.Pipeline().EndToEndLatencyMS.Observe(float64(d))
+    }
 }
