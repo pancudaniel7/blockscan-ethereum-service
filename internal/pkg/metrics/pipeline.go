@@ -23,10 +23,9 @@ func Pipeline() *PipelineMetrics {
             EndToEndLatencyMS: promauto.With(r).NewHistogram(prometheus.HistogramOpts{
                 Name:    "pipeline_end_to_end_latency_ms",
                 Help:    "end-to-end latency from scan to publish+marker+ack (ms)",
-                Buckets: []float64{5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000},
+                Buckets: []float64{5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 60, 70, 80, 90, 100, 120, 150, 200, 300},
             }),
         }
     })
     return pipeline
 }
-
