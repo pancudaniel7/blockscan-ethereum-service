@@ -204,36 +204,37 @@ func (bs *BlockStream) processMessage(msg redis.XMessage) {
 }
 
 func (bs *BlockStream) ensureConsumerGroup(ctx context.Context) error {
-	err := bs.rdb.XGroupCreateMkStream(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, "0").Err()
-	if err == nil {
-		bs.logger.Trace("Created Redis consumer group", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
-		return nil
-	}
-	if strings.Contains(err.Error(), "BUSYGROUP") {
-		bs.logger.Warn("Redis consumer group already exists", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
-		return nil
-	}
-	return apperr.NewBlockStreamErr("failed to ensure consumer group", err)
+    err := bs.rdb.XGroupCreateMkStream(ctx, bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, "0").Err()
+    if err == nil {
+        bs.logger.Trace("Created Redis consumer group", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
+        return nil
+    }
+    if strings.Contains(err.Error(), "BUSYGROUP") {
+        bs.logger.Warn("Redis consumer group already exists", "stream", bs.cfg.Streams.Key, "group", bs.cfg.Streams.ConsumerGroup)
+        return nil
+    }
+    imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, "group_create").Inc()
+    return apperr.NewBlockStreamErr("failed to ensure consumer group", err)
 }
 
 func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
 	return pattern.Retry(
 		ctx,
-		func(attempt int) error {
-			err := bs.ensureConsumerGroup(ctx)
-			if err != nil {
-				bs.logger.Warn(
-					"Failed to ensure consumer group",
-					"stream", bs.cfg.Streams.Key,
-					"group", bs.cfg.Streams.ConsumerGroup,
-					"attempt", attempt,
-					"err", err,
-				)
-			}
-			return err
-		},
-		pattern.WithInfiniteAttempts(),
-		pattern.WithInitialDelay(500*time.Millisecond),
+        func(attempt int) error {
+            err := bs.ensureConsumerGroup(ctx)
+            if err != nil {
+                bs.logger.Warn(
+                    "Failed to ensure consumer group",
+                    "stream", bs.cfg.Streams.Key,
+                    "group", bs.cfg.Streams.ConsumerGroup,
+                    "attempt", attempt,
+                    "err", err,
+                )
+            }
+            return err
+        },
+        pattern.WithInfiniteAttempts(),
+        pattern.WithInitialDelay(500*time.Millisecond),
 		pattern.WithMaxDelay(5*time.Second),
 		pattern.WithMultiplier(2.0),
 		pattern.WithJitter(0.2),
@@ -241,29 +242,31 @@ func (bs *BlockStream) ensureGroupWithRetry(ctx context.Context) error {
 }
 
 func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, readCount int) error {
-	for {
-		streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-			Group:    bs.cfg.Streams.ConsumerGroup,
-			Consumer: consumerName,
-			Streams:  []string{bs.cfg.Streams.Key, "0"},
-			Count:    int64(readCount),
-			Block:    0,
-		}).Result()
-		if err != nil {
-			if isNoGroupErr(err) {
-				if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
-					return gerr
-				}
-				continue
-			}
-			if errors.Is(err, redis.Nil) {
-				return nil
-			}
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return err
-			}
-			return err
-		}
+    for {
+        streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+            Group:    bs.cfg.Streams.ConsumerGroup,
+            Consumer: consumerName,
+            Streams:  []string{bs.cfg.Streams.Key, "0"},
+            Count:    int64(readCount),
+            Block:    0,
+        }).Result()
+        if err != nil {
+            if isNoGroupErr(err) {
+                if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
+                    return gerr
+                }
+                continue
+            }
+            if errors.Is(err, redis.Nil) {
+                return nil
+            }
+            if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+                imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, "xreadgroup_ctx").Inc()
+                return err
+            }
+            imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, "xreadgroup").Inc()
+            return err
+        }
 		if len(streams) == 0 || len(streams[0].Messages) == 0 {
 			return nil
 		}
@@ -277,25 +280,26 @@ func (bs *BlockStream) drainPending(ctx context.Context, consumerName string, re
 
 func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, readCount int, minIdle time.Duration) error {
 	start := "0-0"
-	for {
-		msgs, next, err := bs.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
-			Stream:   bs.cfg.Streams.Key,
-			Group:    bs.cfg.Streams.ConsumerGroup,
-			Consumer: consumerName,
-			MinIdle:  minIdle,
-			Start:    start,
-			Count:    int64(readCount),
-		}).Result()
-		if err != nil {
-			if isNoGroupErr(err) {
-				if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
-					return gerr
-				}
-				start = "0-0"
-				continue
-			}
-			return err
-		}
+    for {
+        msgs, next, err := bs.rdb.XAutoClaim(ctx, &redis.XAutoClaimArgs{
+            Stream:   bs.cfg.Streams.Key,
+            Group:    bs.cfg.Streams.ConsumerGroup,
+            Consumer: consumerName,
+            MinIdle:  minIdle,
+            Start:    start,
+            Count:    int64(readCount),
+        }).Result()
+        if err != nil {
+            if isNoGroupErr(err) {
+                if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
+                    return gerr
+                }
+                start = "0-0"
+                continue
+            }
+            imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, "xautoclaim").Inc()
+            return err
+        }
 		for _, m := range msgs {
 			bs.processMessage(m)
 		}
@@ -307,22 +311,26 @@ func (bs *BlockStream) reclaimStale(ctx context.Context, consumerName string, re
 }
 
 func (bs *BlockStream) readNew(ctx context.Context, consumerName string, readCount int, blockTimeout time.Duration) error {
-	streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
-		Group:    bs.cfg.Streams.ConsumerGroup,
-		Consumer: consumerName,
-		Streams:  []string{bs.cfg.Streams.Key, ">"},
-		Count:    int64(readCount),
-		Block:    blockTimeout,
-	}).Result()
-	if err != nil {
-		if isNoGroupErr(err) {
-			if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
-				return gerr
-			}
-			return nil
-		}
-		return err
-	}
+    streams, err := bs.rdb.XReadGroup(ctx, &redis.XReadGroupArgs{
+        Group:    bs.cfg.Streams.ConsumerGroup,
+        Consumer: consumerName,
+        Streams:  []string{bs.cfg.Streams.Key, ">"},
+        Count:    int64(readCount),
+        Block:    blockTimeout,
+    }).Result()
+    if err != nil {
+        if isNoGroupErr(err) {
+            if gerr := bs.ensureGroupWithRetry(ctx); gerr != nil {
+                return gerr
+            }
+            return nil
+        }
+        if errors.Is(err, redis.Nil) {
+            return nil
+        }
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, "xreadgroup").Inc()
+        return err
+    }
 	for _, s := range streams {
 		for _, m := range s.Messages {
 			bs.processMessage(m)
@@ -332,9 +340,9 @@ func (bs *BlockStream) readNew(ctx context.Context, consumerName string, readCou
 }
 
 func (bs *BlockStream) ackMessage(id string) {
-	if id == "" {
-		return
-	}
+    if id == "" {
+        return
+    }
     shouldRetry := func(err error) bool {
         switch {
         case err == nil, errors.Is(err, context.Canceled):
@@ -345,20 +353,23 @@ func (bs *BlockStream) ackMessage(id string) {
             return true
         }
     }
-	_ = pattern.Retry(
-		context.Background(),
-		func(attempt int) error {
-			_, err := bs.rdb.XAck(context.Background(), bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, id).Result()
-			if err != nil {
-				bs.logger.Warn("XACK failed; message remains pending for retry", "stream", bs.cfg.Streams.Key, "id", id, "attempt", attempt, "err", err)
-			}
-			return err
-		},
-		pattern.WithMaxAttempts(3),
-		pattern.WithInitialDelay(100*time.Millisecond),
-		pattern.WithMaxDelay(500*time.Millisecond),
-		pattern.WithShouldRetry(shouldRetry),
-	)
+    err := pattern.Retry(
+        context.Background(),
+        func(attempt int) error {
+            _, err := bs.rdb.XAck(context.Background(), bs.cfg.Streams.Key, bs.cfg.Streams.ConsumerGroup, id).Result()
+            if err != nil {
+                bs.logger.Warn("XACK failed; message remains pending for retry", "stream", bs.cfg.Streams.Key, "id", id, "attempt", attempt, "err", err)
+            }
+            return err
+        },
+        pattern.WithMaxAttempts(3),
+        pattern.WithInitialDelay(100*time.Millisecond),
+        pattern.WithMaxDelay(500*time.Millisecond),
+        pattern.WithShouldRetry(shouldRetry),
+    )
+    if err != nil {
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, "xack").Inc()
+    }
 }
 
 func isNoGroupErr(err error) bool {

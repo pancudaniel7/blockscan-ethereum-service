@@ -166,29 +166,33 @@ func (kp *KafkaPublisher) buildRecord(block *entity.Block, payload []byte, extra
 }
 
 func (kp *KafkaPublisher) publishWithRetry(ctx context.Context, rec *kgo.Record, block *entity.Block) error {
-	return pattern.Retry(ctx, func(attempt int) error {
-		err := kp.produceOnce(ctx, rec)
-		if err != nil {
-			if kp.shouldRetry(err) {
-				kp.log.Warn("Kafka publish attempt failed", "attempt", attempt, "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
-			} else {
-				kp.log.Error("Kafka publish failed (non-retriable)", "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
-			}
-		}
-		return err
-	}, kp.retryOpts...)
+    err := pattern.Retry(ctx, func(attempt int) error {
+        err := kp.produceOnce(ctx, rec)
+        if err != nil {
+            if kp.shouldRetry(err) {
+                kp.log.Warn("Kafka publish attempt failed", "attempt", attempt, "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
+            } else {
+                kp.log.Error("Kafka publish failed (non-retriable)", "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
+            }
+        }
+        return err
+    }, kp.retryOpts...)
+    if err != nil {
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentKafka, classifyKafkaError(err)).Inc()
+    }
+    return err
 }
 
 func (kp *KafkaPublisher) produceOnce(ctx context.Context, rec *kgo.Record) error {
 	start := time.Now()
-	if kp.cfg.TransactionalID != "" {
-		if err := kp.client.BeginTransaction(); err != nil {
-			imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
-			imetrics.Kafka().ProduceAttemptsTotal.Inc()
-			imetrics.Kafka().ProduceErrorsTotal.WithLabelValues("txn_begin").Inc()
-			return err
-		}
-	}
+    if kp.cfg.TransactionalID != "" {
+        if err := kp.client.BeginTransaction(); err != nil {
+            imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
+            imetrics.Kafka().ProduceAttemptsTotal.Inc()
+            imetrics.Kafka().ProduceErrorsTotal.WithLabelValues("txn_begin").Inc()
+            return err
+        }
+    }
 
 	attemptCtx, cancel := context.WithTimeout(ctx, kp.writeTimeout)
 	defer cancel()
@@ -205,14 +209,15 @@ func (kp *KafkaPublisher) produceOnce(ctx context.Context, rec *kgo.Record) erro
 		}
 	}
 
-	imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
-	imetrics.Kafka().ProduceAttemptsTotal.Inc()
-	if writeErr == nil {
-		imetrics.Kafka().ProduceSuccessTotal.Inc()
-	} else {
-		imetrics.Kafka().ProduceErrorsTotal.WithLabelValues(classifyKafkaError(writeErr)).Inc()
-	}
-	return writeErr
+    imetrics.Kafka().ProduceLatencyMS.Observe(float64(time.Since(start).Milliseconds()))
+    imetrics.Kafka().ProduceAttemptsTotal.Inc()
+    if writeErr == nil {
+        imetrics.Kafka().ProduceSuccessTotal.Inc()
+    } else {
+        classif := classifyKafkaError(writeErr)
+        imetrics.Kafka().ProduceErrorsTotal.WithLabelValues(classif).Inc()
+    }
+    return writeErr
 }
 
 func (kp *KafkaPublisher) shouldRetry(err error) bool {

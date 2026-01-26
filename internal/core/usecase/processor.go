@@ -1,16 +1,17 @@
 package usecase
 
 import (
-	"context"
-	"strconv"
+    "context"
+    "strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/port"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
-	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
-	"github.com/pingcap/failpoint"
-	"github.com/redis/go-redis/v9"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
+    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
+    "github.com/pingcap/failpoint"
+    "github.com/redis/go-redis/v9"
 )
 
 // FPFailBeforePublish simulates a crash right before publishing a block to the
@@ -40,11 +41,12 @@ func (bps *BlockProcessorService) StoreBlock(ctx context.Context, block *types.B
 	}
 
 	entityBlock := mapBlock(block)
-	stored, err := bps.storeLogger.StoreBlock(ctx, entityBlock)
-	if err != nil {
-		bps.log.Error("failed to store block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex(), "err", err)
-		return apperr.NewBlockProcessErr("failed to store block", err)
-	}
+    stored, err := bps.storeLogger.StoreBlock(ctx, entityBlock)
+    if err != nil {
+        bps.log.Error("failed to store block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex(), "err", err)
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentProcessor, "store").Inc()
+        return apperr.NewBlockProcessErr("failed to store block", err)
+    }
 
 	if stored {
 		bps.log.Info("Stored block", "number", entityBlock.Header.Number, "hash", entityBlock.Hash.Hex())
@@ -71,10 +73,11 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		return apperr.NewBlockProcessErr("failed to extract fields from stream message", err)
 	}
 
-	block, err := UnmarshalBlockJSON([]byte(*payload))
-	if err != nil {
-		return apperr.NewBlockProcessErr("failed to unmarshal block payload", err)
-	}
+    block, err := UnmarshalBlockJSON([]byte(*payload))
+    if err != nil {
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentProcessor, "unmarshal").Inc()
+        return apperr.NewBlockProcessErr("failed to unmarshal block payload", err)
+    }
 
 	if (block.Hash == common.Hash{}) && *hash != "" {
 		block.Hash = common.HexToHash(*hash)
@@ -83,23 +86,26 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 		block.Header.Number = *number
 	}
 
-	if ok, err := bps.storeLogger.IsBlockPublished(ctx, block.Hash.Hex()); err != nil {
-		return apperr.NewBlockProcessErr("failed to check published marker", err)
-	} else if ok {
+    if ok, err := bps.storeLogger.IsBlockPublished(ctx, block.Hash.Hex()); err != nil {
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentProcessor, "marker_check").Inc()
+        return apperr.NewBlockProcessErr("failed to check published marker", err)
+    } else if ok {
 		bps.log.Trace("Skipping publish; marker exists", "hash", block.Hash.Hex(), "number", block.Header.Number)
 		return nil
 	}
 
 	headers := map[string]string{"source-message-id": msg.ID}
-	if err := bps.publisher.PublishBlock(ctx, block, headers); err != nil {
-		bps.log.Error("failed to publish block", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
-		return apperr.NewBlockProcessErr("failed to publish block", err)
-	}
+    if err := bps.publisher.PublishBlock(ctx, block, headers); err != nil {
+        bps.log.Error("failed to publish block", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentProcessor, "publish").Inc()
+        return apperr.NewBlockProcessErr("failed to publish block", err)
+    }
 
-	if _, err := bps.storeLogger.StorePublishedBlockHash(ctx, block.Hash.Hex()); err != nil {
-		bps.log.Error("failed to store published marker", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
-		return apperr.NewBlockProcessErr("failed to store published marker", err)
-	}
+    if _, err := bps.storeLogger.StorePublishedBlockHash(ctx, block.Hash.Hex()); err != nil {
+        bps.log.Error("failed to store published marker", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentProcessor, "marker_store").Inc()
+        return apperr.NewBlockProcessErr("failed to store published marker", err)
+    }
 
 	failpoint.Inject(FPFailAfterPublishBlockDedupHash, func() {
 		bps.log.Fatal("failpoint triggered: kafka-dedup-producer")

@@ -15,6 +15,7 @@ import (
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/core/usecase"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/apperr"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
 	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/pattern"
 	"github.com/redis/go-redis/v9"
 )
@@ -93,19 +94,22 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 	}
 
 	var stored bool
-	err = pattern.Retry(
-		ctx,
-		func(attempt int) error {
-			res, err := bs.rdb.Do(ctx, args...).Result()
-			if err != nil {
-				bs.log.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)
-				return apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
-			}
+    var lastReason string
+    err = pattern.Retry(
+        ctx,
+        func(attempt int) error {
+            res, err := bs.rdb.Do(ctx, args...).Result()
+            if err != nil {
+                bs.log.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)
+                lastReason = "fcall"
+                return apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
+            }
 
-			arr, ok := res.([]interface{})
-			if !ok || len(arr) < 1 {
-				return apperr.NewBlockStoreErr("unexpected FCALL response", fmt.Errorf("type=%T", res))
-			}
+            arr, ok := res.([]interface{})
+            if !ok || len(arr) < 1 {
+                lastReason = "fcall_resp"
+                return apperr.NewBlockStoreErr("unexpected FCALL response", fmt.Errorf("type=%T", res))
+            }
 
 			status, ok := arr[0].(int64)
 			if !ok {
@@ -118,29 +122,35 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
 			}
 
 			stored = false
-			if len(arr) > 1 {
-				if reason, ok := arr[1].(string); ok {
-					switch strings.ToUpper(reason) {
-					case "EXISTS":
-						bs.log.Trace("Block already logged; skipping", "hash", block.Hash.Hex(), "number", block.Header.Number)
-						return nil
-					case "XADD_ERR":
-						bs.log.Warn("Redis XADD failed while adding block", "hash", block.Hash.Hex(), "number", block.Header.Number)
-						return apperr.NewBlockStoreErr("redis add_block XADD failed", nil)
-					}
-				}
-			}
-			return apperr.NewBlockStoreErr("redis add_block failed with unknown reason", nil)
-		},
-		pattern.WithMaxAttempts(3),
-		pattern.WithInitialDelay(200*time.Millisecond),
-		pattern.WithMaxDelay(1*time.Second),
-	)
-	if err != nil {
-		return false, apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
-	}
+            if len(arr) > 1 {
+                if reason, ok := arr[1].(string); ok {
+                    switch strings.ToUpper(reason) {
+                    case "EXISTS":
+                        bs.log.Trace("Block already logged; skipping", "hash", block.Hash.Hex(), "number", block.Header.Number)
+                        return nil
+                    case "XADD_ERR":
+                        bs.log.Warn("Redis XADD failed while adding block", "hash", block.Hash.Hex(), "number", block.Header.Number)
+                        lastReason = "xadd_err"
+                        return apperr.NewBlockStoreErr("redis add_block XADD failed", nil)
+                    }
+                }
+            }
+            lastReason = "unknown"
+            return apperr.NewBlockStoreErr("redis add_block failed with unknown reason", nil)
+        },
+        pattern.WithMaxAttempts(3),
+        pattern.WithInitialDelay(200*time.Millisecond),
+        pattern.WithMaxDelay(1*time.Second),
+    )
+    if err != nil {
+        if lastReason == "" {
+            lastReason = "unknown"
+        }
+        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, lastReason).Inc()
+        return false, apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
+    }
 
-	return stored, nil
+    return stored, nil
 }
 
 func clusterHashTag(key string) string {

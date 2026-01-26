@@ -42,6 +42,7 @@ func InitMetrics(app *fiber.App) {
 		_ = imetrics.Scanner()
 		_ = imetrics.Process()
 		_ = imetrics.Pipeline()
+		_ = imetrics.App()
 	}
 	h := promhttp.InstrumentMetricHandler(promRegistry, promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{}))
 	app.Get("/metrics", adaptor.HTTPHandler(h))
