@@ -1,4 +1,4 @@
-.PHONY: build test run integration-test unit-test docker-up docker-down lint lint-install
+.PHONY: build test run integration-test unit-test docker-up docker-down docker-clean lint lint-install
 
 # Config selection: prefer GO_ENV if provided, default to "local".
 CONFIG_NAME ?= $(GO_ENV)
@@ -46,6 +46,10 @@ docker-dev-up:
 
 docker-down:
 	docker compose --verbose -f $(COMPOSE_FILE) down
+
+# Stop and remove all containers, networks, and volumes created by the compose stack
+docker-clean:
+	docker compose --verbose -f $(COMPOSE_FILE) down --volumes --remove-orphans
 
 docker-up:
 	docker compose --verbose -f $(COMPOSE_FILE) build blockscan-replica1 blockscan-replica2
