@@ -200,6 +200,7 @@ func (bs *BlockStream) processMessage(msg redis.XMessage) {
         bs.logger.Fatal("failpoint triggered: fail-before-ack", "stream", bs.cfg.Streams.Key, "id", msg.ID)
     })
     bs.ackMessage(msg.ID)
+    imetrics.Pipeline().ProcessedTotal.Inc()
     bs.observeEndToEndLatency(msg)
 }
 

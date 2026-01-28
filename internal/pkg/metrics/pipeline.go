@@ -9,6 +9,7 @@ import (
 
 type PipelineMetrics struct {
 	EndToEndLatencyMS prometheus.Histogram
+	ProcessedTotal    prometheus.Counter
 }
 
 var (
@@ -24,6 +25,10 @@ func Pipeline() *PipelineMetrics {
 				Name:    "pipeline_end_to_end_latency_ms",
 				Help:    "end-to-end latency from scan to publish+marker+ack (ms)",
 				Buckets: []float64{30, 35, 40, 45, 50, 60},
+			}),
+			ProcessedTotal: promauto.With(r).NewCounter(prometheus.CounterOpts{
+				Name: "pipeline_processed_total",
+				Help: "total blocks consumed from stream and acknowledged",
 			}),
 		}
 	})
