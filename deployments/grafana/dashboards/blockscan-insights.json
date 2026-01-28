@@ -368,7 +368,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "100 * sum(increase(blockscan_kafka_produce_success_total[$__range])) /\n        sum(increase(blockscan_kafka_produce_attempts_total[$__range]))",
+          "expr": "sum(rate(blockscan_pipeline_end_to_end_latency_ms_sum[5m])) /\n            sum(rate(blockscan_pipeline_end_to_end_latency_ms_count[5m]))",
           "legendFormat": "Latency",
           "range": true,
           "refId": "A"
@@ -463,30 +463,6 @@
                 "value": {
                   "fixedColor": "dark-red",
                   "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "__systemRef": "hideSeriesFrom",
-            "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "Errors count"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
-            },
-            "properties": [
-              {
-                "id": "custom.hideFrom",
-                "value": {
-                  "legend": false,
-                  "tooltip": true,
-                  "viz": true
                 }
               }
             ]
