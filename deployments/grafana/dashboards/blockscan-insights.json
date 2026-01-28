@@ -31,10 +31,10 @@
           "color": {
             "mode": "thresholds"
           },
-          "decimals": 0,
+          "decimals": 2,
           "mappings": [],
           "thresholds": {
-            "mode": "absolute",
+            "mode": "percentage",
             "steps": [
               {
                 "color": "orange",
@@ -42,11 +42,19 @@
               },
               {
                 "color": "red",
-                "value": 80
+                "value": 94
+              },
+              {
+                "color": "#EAB839",
+                "value": 95
+              },
+              {
+                "color": "orange",
+                "value": 98
               }
             ]
           },
-          "unit": "opm"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -56,7 +64,7 @@
         "x": 0,
         "y": 0
       },
-      "id": 1,
+      "id": 7,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -77,18 +85,14 @@
       "pluginVersion": "12.3.1",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
-          },
           "editorMode": "code",
-          "expr": "60 * sum(max by (chain, mode) (clamp_min(rate(blockscan_scanned_blocks_total{service=\"blockscan\"}[5m]), 0)))",
-          "legendFormat": "__auto",
+          "expr": "100 * sum(increase(blockscan_kafka_produce_success_total[5m])) /\n        sum(increase(blockscan_kafka_produce_attempts_total[5m]))",
+          "legendFormat": "Ratio",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Scanner Throughput (blocks/min)",
+      "title": "Publish Success Ratio (%)",
       "type": "stat"
     },
     {
@@ -101,18 +105,30 @@
           "color": {
             "mode": "thresholds"
           },
-          "decimals": 0,
+          "decimals": 2,
           "mappings": [],
           "thresholds": {
-            "mode": "absolute",
+            "mode": "percentage",
             "steps": [
               {
                 "color": "blue",
                 "value": 0
+              },
+              {
+                "color": "red",
+                "value": 94
+              },
+              {
+                "color": "#EAB839",
+                "value": 95
+              },
+              {
+                "color": "blue",
+                "value": 99
               }
             ]
           },
-          "unit": "opm"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -122,7 +138,7 @@
         "x": 6,
         "y": 0
       },
-      "id": 2,
+      "id": 8,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
@@ -144,13 +160,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "60 * sum(clamp_min(rate(blockscan_kafka_produce_success_total{service=\"blockscan\"}[5m]), 0))",
+          "expr": "100 * sum(rate(blockscan_pipeline_processed_total[5m])) / (sum(rate(blockscan_pipeline_processed_total[5m])) +\n    sum(rate(blockscan_app_errors_total{component=\"processor\"}[5m])))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Publisher Throughput (blocks/min)",
+      "title": "Consumed Success Ratio (%)",
       "type": "stat"
     },
     {
@@ -285,6 +301,138 @@
       "fieldConfig": {
         "defaults": {
           "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "opm"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 7
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "PBFA97CFB590B2093"
+          },
+          "editorMode": "code",
+          "expr": "60 * sum(max by (chain, mode) (clamp_min(rate(blockscan_scanned_blocks_total{service=\"blockscan\"}[5m]), 0)))",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Scanner Throughput (blocks/min)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "opm"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 7
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "60 * sum(clamp_min(rate(blockscan_kafka_produce_success_total{service=\"blockscan\"}[5m]), 0))",
+          "legendFormat": "__auto",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Publisher Throughput (blocks/min)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
             "mode": "palette-classic"
           },
           "custom": {
@@ -344,7 +492,7 @@
         "h": 8,
         "w": 6,
         "x": 0,
-        "y": 7
+        "y": 14
       },
       "id": 3,
       "options": {
@@ -368,7 +516,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "  sum(increase(blockscan_pipeline_end_to_end_latency_ms_bucket{service=\"blockscan\"}[1m]))",
+          "expr": "100 * sum(increase(blockscan_kafka_produce_success_total[$__range])) /\n        sum(increase(blockscan_kafka_produce_attempts_total[$__range]))",
           "legendFormat": "Latency",
           "range": true,
           "refId": "A"
@@ -512,7 +660,7 @@
         "h": 8,
         "w": 6,
         "x": 6,
-        "y": 7
+        "y": 14
       },
       "id": 4,
       "options": {
@@ -571,5 +719,5 @@
   "timezone": "",
   "title": "Blockscan Insights",
   "uid": "721a0def-7aac-4aeb-a040-6233430e1561",
-  "version": 3
+  "version": 1
 }
