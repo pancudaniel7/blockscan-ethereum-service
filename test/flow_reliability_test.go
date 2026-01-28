@@ -24,7 +24,6 @@ const FPEnvBeforeAck = "github.com/pancudaniel7/blockscan-ethereum-service/inter
 
 // TestNewHeadBlockFlow exercises end-to-end flow with replicas under various
 // failpoint-induced crash scenarios to validate idempotency and dedup logic.
-
 func TestNewHeadBlockFlow(t *testing.T) {
 	require.NoError(t, util.InitConfig())
 	util.EnsureServiceImageBuilt(t)

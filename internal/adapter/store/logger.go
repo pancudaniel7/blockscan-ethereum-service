@@ -193,10 +193,26 @@ func (bs *BlockLogger) StorePublishedBlockHash(ctx context.Context, blockHash st
 		ttl = 0
 	}
 
-	created, err := bs.rdb.SetNX(ctx, key, "1", ttl).Result()
-	if err != nil {
-		return false, apperr.NewBlockStoreErr("failed to store published marker", err)
-	}
+    var created bool
+    err := pattern.Retry(
+        ctx,
+        func(attempt int) error {
+            c, err := bs.rdb.SetNX(ctx, key, "1", ttl).Result()
+            if err != nil {
+                bs.log.Warn("Redis SETNX published marker failed", "key", key, "attempt", attempt, "err", err)
+                return err
+            }
+            created = c
+            return nil
+        },
+        pattern.WithMaxAttempts(5),
+        pattern.WithInitialDelay(100*time.Millisecond),
+        pattern.WithMaxDelay(500*time.Millisecond),
+        pattern.WithJitter(0.2),
+    )
+    if err != nil {
+        return false, apperr.NewBlockStoreErr("failed to store published marker", err)
+    }
 
 	if created {
 		bs.log.Trace("Stored published marker", "key", key)
