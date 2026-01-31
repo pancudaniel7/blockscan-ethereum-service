@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
 
+############################################################
 # Builder stage: use official Go Alpine image matching go.mod version
 FROM golang:1.25-alpine AS builder
 
