@@ -32,11 +32,16 @@ scrape_configs:
         replacement: /var/lib/docker/containers/$1/$1-json.log
     pipeline_stages:
       - docker: {}
-      - logfmt:
-          mapping:
-            service:
-            instance:
-            level:
-      - labels:
-          service:
-          instance:
+      # Parse logfmt only for our blockscan service containers to avoid
+      # errors when non-logfmt logs (Kafka, Redis, Prometheus, etc.) are scraped.
+      - match:
+          selector: '{service=~"blockscan(-replica[0-9]+)?"}'
+          stages:
+            - logfmt:
+                mapping:
+                  service:
+                  instance:
+                  level:
+            - labels:
+                service:
+                instance:
