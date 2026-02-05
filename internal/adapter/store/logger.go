@@ -101,6 +101,7 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
             res, err := bs.rdb.Do(ctx, args...).Result()
             if err != nil {
                 bs.log.Warn("redis FCALL add_block failed", "attempt", attempt, "err", err)
+                imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentRedis, "fcall_retry").Inc()
                 lastReason = "fcall"
                 return apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
             }
@@ -130,6 +131,7 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
                         return nil
                     case "XADD_ERR":
                         bs.log.Warn("Redis XADD failed while adding block", "hash", block.Hash.Hex(), "number", block.Header.Number)
+                        imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentRedis, "xadd_err").Inc()
                         lastReason = "xadd_err"
                         return apperr.NewBlockStoreErr("redis add_block XADD failed", nil)
                     }
@@ -146,6 +148,7 @@ func (bs *BlockLogger) StoreBlock(ctx context.Context, block *entity.Block) (boo
         if lastReason == "" {
             lastReason = "unknown"
         }
+        bs.log.Error("redis add_block failed after retries", "reason", lastReason, "err", err)
         imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentRedis, lastReason).Inc()
         return false, apperr.NewBlockStoreErr("redis FCALL add_block failed", err)
     }
@@ -200,6 +203,7 @@ func (bs *BlockLogger) StorePublishedBlockHash(ctx context.Context, blockHash st
             c, err := bs.rdb.SetNX(ctx, key, "1", ttl).Result()
             if err != nil {
                 bs.log.Warn("Redis SETNX published marker failed", "key", key, "attempt", attempt, "err", err)
+                imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentRedis, "setnx_retry").Inc()
                 return err
             }
             created = c

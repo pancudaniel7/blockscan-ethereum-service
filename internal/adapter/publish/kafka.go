@@ -122,17 +122,18 @@ func (kp *KafkaPublisher) PublishBlock(ctx context.Context, block *entity.Block,
 
 	size := len(payload)
 	kp.log.Trace("Prepared block payload", "topic", kp.cfg.Topic, "hash", block.Hash.Hex(), "number", block.Header.Number, "value_bytes", size)
-	if kp.cfg.MaxRecordBytes > 0 && size > kp.cfg.MaxRecordBytes {
-		kp.log.Warn(
-			"Kafka record rejected by size guard",
-			"topic", kp.cfg.Topic,
+		if kp.cfg.MaxRecordBytes > 0 && size > kp.cfg.MaxRecordBytes {
+			kp.log.Warn(
+				"Kafka record rejected by size guard",
+				"topic", kp.cfg.Topic,
 			"hash", block.Hash.Hex(),
 			"number", block.Header.Number,
-			"value_bytes", size,
-			"limit_bytes", kp.cfg.MaxRecordBytes,
-		)
-		return apperr.NewBlockPublishErr("payload exceeds max_record_bytes", nil)
-	}
+				"value_bytes", size,
+				"limit_bytes", kp.cfg.MaxRecordBytes,
+			)
+			imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentKafka, "record_too_large").Inc()
+			return apperr.NewBlockPublishErr("payload exceeds max_record_bytes", nil)
+		}
 
 	rec := kp.buildRecord(block, payload, headers)
 	if err := kp.publishWithRetry(ctx, rec, block); err != nil {
@@ -166,22 +167,20 @@ func (kp *KafkaPublisher) buildRecord(block *entity.Block, payload []byte, extra
 }
 
 func (kp *KafkaPublisher) publishWithRetry(ctx context.Context, rec *kgo.Record, block *entity.Block) error {
-    err := pattern.Retry(ctx, func(attempt int) error {
-        err := kp.produceOnce(ctx, rec)
-        if err != nil {
-            if kp.shouldRetry(err) {
-                kp.log.Warn("Kafka publish attempt failed", "attempt", attempt, "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
-            } else {
-                kp.log.Error("Kafka publish failed (non-retriable)", "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
-            }
-        }
-        return err
-    }, kp.retryOpts...)
-    if err != nil {
-        imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentKafka, classifyKafkaError(err)).Inc()
-    }
-    return err
-}
+	    err := pattern.Retry(ctx, func(attempt int) error {
+	        err := kp.produceOnce(ctx, rec)
+	        if err != nil {
+	            if kp.shouldRetry(err) {
+	                kp.log.Warn("Kafka publish attempt failed", "attempt", attempt, "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
+                    imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentKafka, "publish_retry").Inc()
+	            } else {
+	                kp.log.Error("Kafka publish failed (non-retriable)", "hash", block.Hash.Hex(), "topic", kp.cfg.Topic, "err", err)
+	            }
+	        }
+	        return err
+	    }, kp.retryOpts...)
+	    return err
+	}
 
 func (kp *KafkaPublisher) produceOnce(ctx context.Context, rec *kgo.Record) error {
 	start := time.Now()

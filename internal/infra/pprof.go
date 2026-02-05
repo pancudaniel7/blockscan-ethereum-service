@@ -4,12 +4,13 @@ import (
     "context"
     "net/http"
     _ "net/http/pprof"
-    "runtime"
-    "sync"
-    "time"
+	"runtime"
+	"sync"
+	"time"
 
-    "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
-    "github.com/spf13/viper"
+	"github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/applog"
+    imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
+	"github.com/spf13/viper"
 )
 
 // StartPprof starts a dedicated net/http pprof server when enabled via config.
@@ -32,12 +33,13 @@ func StartPprof(logger applog.AppLogger, wg *sync.WaitGroup) func(context.Contex
 
     srv := &http.Server{Addr: addr}
     wg.Add(1)
-    go func() {
-        defer wg.Done()
-        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-            logger.Warn("pprof server error", "err", err)
-        }
-    }()
+	    go func() {
+	        defer wg.Done()
+	        if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	            logger.Warn("pprof server error", "err", err)
+                imetrics.App().WarningsTotal.WithLabelValues("infra", "pprof").Inc()
+	        }
+	    }()
 
     return func(ctx context.Context) error {
         if ctx == nil {
@@ -48,4 +50,3 @@ func StartPprof(logger applog.AppLogger, wg *sync.WaitGroup) func(context.Contex
         return srv.Shutdown(ctx)
     }
 }
-

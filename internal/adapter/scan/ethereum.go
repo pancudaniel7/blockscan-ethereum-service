@@ -175,20 +175,21 @@ outer:
 				imetrics.Scanner().ReconnectsTotal.WithLabelValues("subscribe").Inc()
 				imetrics.Scanner().Connected.Set(0)
 				s.log.Warn("Subscription error, will reconnect", "err", err)
-				imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentScanner, "subscribe").Inc()
+				imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "subscribe").Inc()
 				sub.Unsubscribe()
 				client.Close()
 				break inner
 
-			case header, ok := <-headers:
-				if !ok {
-					imetrics.Scanner().ReconnectsTotal.WithLabelValues("subscribe").Inc()
-					imetrics.Scanner().Connected.Set(0)
-					s.log.Warn("Headers channel closed — restarting subscription")
-					sub.Unsubscribe()
-					client.Close()
-					break inner
-				}
+				case header, ok := <-headers:
+					if !ok {
+						imetrics.Scanner().ReconnectsTotal.WithLabelValues("subscribe").Inc()
+						imetrics.Scanner().Connected.Set(0)
+						s.log.Warn("Headers channel closed — restarting subscription")
+                        imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "headers_closed").Inc()
+						sub.Unsubscribe()
+						client.Close()
+						break inner
+					}
 
 				target := header.Number.Uint64()
 				start := s.lastProcessed + 1
@@ -198,21 +199,20 @@ outer:
 				for h := start; h <= target; h++ {
 					fetchStart := time.Now()
 					blk, err := s.fetchBlockByNumber(ctx, client, h)
-					if err != nil {
-						imetrics.Scanner().FetchLatencyMS.WithLabelValues("new_head").Observe(float64(time.Since(fetchStart).Milliseconds()))
-						imetrics.Scanner().FetchErrorsTotal.WithLabelValues("new_head", classifyScanError(err)).Inc()
-						imetrics.Scanner().ReconnectsTotal.WithLabelValues("fetch").Inc()
-						imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentScanner, classifyScanError(err)).Inc()
-						s.log.Warn("Failed to fetch block; will reconnect", "number", h, "err", err)
-						sub.Unsubscribe()
-						client.Close()
-						break inner
-					}
+						if err != nil {
+							imetrics.Scanner().FetchLatencyMS.WithLabelValues("new_head").Observe(float64(time.Since(fetchStart).Milliseconds()))
+							imetrics.Scanner().FetchErrorsTotal.WithLabelValues("new_head", classifyScanError(err)).Inc()
+							imetrics.Scanner().ReconnectsTotal.WithLabelValues("fetch").Inc()
+							s.log.Warn("Failed to fetch block; will reconnect", "number", h, "err", err)
+                            imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "fetch").Inc()
+							sub.Unsubscribe()
+							client.Close()
+							break inner
+						}
 					imetrics.Scanner().FetchLatencyMS.WithLabelValues("new_head").Observe(float64(time.Since(fetchStart).Milliseconds()))
 					if err := s.handleBlock(ctx, blk); err != nil {
 						imetrics.Scanner().HandlerErrorsTotal.WithLabelValues("new_head").Inc()
 						imetrics.Scanner().ReconnectsTotal.WithLabelValues("handler").Inc()
-						imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentScanner, "handler").Inc()
 						s.log.Error("Block handler failed (new heads); will reconnect", "number", blk.NumberU64(), "err", err)
 						sub.Unsubscribe()
 						client.Close()
@@ -246,13 +246,14 @@ outer:
 		}
 
 		client, err := s.connectClient(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				return
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				s.log.Warn("Failed to connect to Ethereum node, trying again...", "err", err)
+                imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "connect").Inc()
+				continue
 			}
-			s.log.Warn("Failed to connect to Ethereum node, trying again...", "err", err)
-			continue
-		}
 
 		imetrics.Scanner().Connected.Set(1)
 		s.log.Trace("Connected to Ethereum node for finalized polling")
@@ -264,12 +265,13 @@ outer:
 					if ctx.Err() != nil {
 						s.log.Trace("Stop requested while resolving finalized head; entering drain if needed")
 						draining = true
+						} else {
+							s.log.Warn("Failed to resolve finalized head; reconnecting", "err", err)
+                            imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "finalized_head").Inc()
+							client.Close()
+							continue outer
+						}
 					} else {
-						s.log.Warn("Failed to resolve finalized head; reconnecting", "err", err)
-						client.Close()
-						continue outer
-					}
-				} else {
 					next := s.lastProcessed + 1
 					if s.lastProcessed == 0 {
 						next = finalized
@@ -318,17 +320,17 @@ outer:
 				imetrics.Scanner().FetchLatencyMS.WithLabelValues("finalized").Observe(float64(time.Since(fetchStart).Milliseconds()))
 				imetrics.Scanner().FetchErrorsTotal.WithLabelValues("finalized", classifyScanError(err)).Inc()
 				imetrics.Scanner().ReconnectsTotal.WithLabelValues("fetch").Inc()
-				imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentScanner, classifyScanError(err)).Inc()
 				if ctx.Err() != nil {
 					s.log.Trace("Context canceled while fetching finalized block, continuing drain", "height", height)
 					draining = true
 					client.Close()
 					continue outer
+					}
+					s.log.Warn("Failed to fetch finalized block; will reconnect and retry", "height", height, "err", err)
+                    imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "fetch_finalized").Inc()
+					client.Close()
+					continue outer
 				}
-				s.log.Warn("Failed to fetch finalized block; will reconnect and retry", "height", height, "err", err)
-				client.Close()
-				continue outer
-			}
 			var handleCtx = ctx
 			var cancelHandle context.CancelFunc
 			if draining {
@@ -338,14 +340,14 @@ outer:
 			if cancelHandle != nil {
 				cancelHandle()
 			}
-			if err != nil {
-				imetrics.Scanner().HandlerErrorsTotal.WithLabelValues("finalized").Inc()
-				imetrics.Scanner().ReconnectsTotal.WithLabelValues("handler").Inc()
-				imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentScanner, "handler").Inc()
-				s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
-				client.Close()
-				continue outer
-			}
+				if err != nil {
+					imetrics.Scanner().HandlerErrorsTotal.WithLabelValues("finalized").Inc()
+					imetrics.Scanner().ReconnectsTotal.WithLabelValues("handler").Inc()
+					s.log.Warn("Block handler failed (finalized); will reconnect and retry", "number", blk.NumberU64(), "err", err)
+                    imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "handler_finalized").Inc()
+					client.Close()
+					continue outer
+				}
 			imetrics.Scanner().FetchLatencyMS.WithLabelValues("finalized").Observe(float64(time.Since(fetchStart).Milliseconds()))
 			imetrics.Scanner().ScannedBlocksTotal.WithLabelValues("finalized", "ethereum").Inc()
 			pendingHeights = pendingHeights[1:]
@@ -408,11 +410,12 @@ func (s *EthereumScanner) connectClient(ctx context.Context) (ethereumClient, er
 				return apperr.NewBlockScanErr("client factory not configured", nil)
 			}
 			c, err := s.newClient(ctx)
-			if err != nil {
-				imetrics.Scanner().ReconnectsTotal.WithLabelValues("dial").Inc()
-				s.log.Warn("Ethereum dial failed", "attempt", attempt, "err", err)
-				return err
-			}
+				if err != nil {
+					imetrics.Scanner().ReconnectsTotal.WithLabelValues("dial").Inc()
+					s.log.Warn("Ethereum dial failed", "attempt", attempt, "err", err)
+                    imetrics.App().WarningsTotal.WithLabelValues(imetrics.ComponentScanner, "dial").Inc()
+					return err
+				}
 			client = c
 			return nil
 		},

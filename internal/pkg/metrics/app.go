@@ -9,6 +9,7 @@ import (
 
 type AppMetrics struct {
     ErrorsTotal *prometheus.CounterVec
+    WarningsTotal *prometheus.CounterVec
 }
 
 var (
@@ -27,8 +28,14 @@ func App() *AppMetrics {
                 },
                 []string{"component", "reason"},
             ),
+            WarningsTotal: promauto.With(r).NewCounterVec(
+                prometheus.CounterOpts{
+                    Name: "app_warnings_total",
+                    Help: "application warnings (handled/transient) by component and reason",
+                },
+                []string{"component", "reason"},
+            ),
         }
     })
     return app
 }
-

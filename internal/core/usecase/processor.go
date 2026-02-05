@@ -75,6 +75,7 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 
 	block, err := UnmarshalBlockJSON([]byte(*payload))
 	if err != nil {
+		bps.log.Error("failed to unmarshal block payload", "message_id", msg.ID, "err", err)
 		imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentProcessor, "unmarshal").Inc()
 		return apperr.NewBlockProcessErr("failed to unmarshal block payload", err)
 	}
@@ -87,6 +88,7 @@ func (bps *BlockProcessorService) ReadAndPublishBlock(ctx context.Context, msg r
 	}
 
 	if ok, err := bps.storeLogger.IsBlockPublished(ctx, block.Hash.Hex()); err != nil {
+		bps.log.Error("failed to check published marker", "hash", block.Hash.Hex(), "number", block.Header.Number, "err", err)
 		imetrics.App().ErrorsTotal.WithLabelValues(imetrics.ComponentProcessor, "marker_check").Inc()
 		return apperr.NewBlockProcessErr("failed to check published marker", err)
 	} else if ok {

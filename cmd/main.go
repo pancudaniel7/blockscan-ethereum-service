@@ -62,9 +62,9 @@ func main() {
 	valid = validator.New()
 
 	initComponents()
-	stopPprof := infra.StartPprof(logger, &wg)
 	server = infra.NewServer(logger)
 	infra.InitMetrics(server)
+	stopPprof := infra.StartPprof(logger, &wg)
 	infra.InitRoutes(server)
 	infra.RunServer(logger, &wg, server)
 
