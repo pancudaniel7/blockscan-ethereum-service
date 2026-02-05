@@ -41,19 +41,14 @@ integration-test:
 run:
 	CONFIG_NAME=$(CONFIG_NAME) go run -v ./cmd
 
-docker-dev-up:
-	docker compose --verbose -f $(COMPOSE_FILE) up -d redis redis-provisioner kafka kafka-provisioner kafka-ui redis-commander
+infra-down:
+	docker compose --verbose -f $(COMPOSE_FILE) down -v --remove-orphans
 
-docker-down:
-	docker compose --verbose -f $(COMPOSE_FILE) down
-
-# Stop and remove all containers, networks, and volumes created by the compose stack
-docker-clean:
-	docker compose --verbose -f $(COMPOSE_FILE) down --volumes --remove-orphans
-
-docker-up:
-	docker compose --verbose -f $(COMPOSE_FILE) build blockscan-replica1 blockscan-replica2
+infra-up:
 	docker compose --verbose -f $(COMPOSE_FILE) up -d --build --force-recreate grafana blockscan-replica1 blockscan-replica2
 	docker compose --verbose -f $(COMPOSE_FILE) up -d \
 		redis redis-provisioner kafka kafka-provisioner kafka-ui redis-commander \
 		prometheus loki promtail telegraf docker-proxy
+
+infra-blockscan-restart:
+	  docker compose --verbose -f $(COMPOSE_FILE) up -d --build --force-recreate blockscan-replica1 blockscan-replica2
