@@ -294,7 +294,7 @@
             "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
-            "barAlignment": -1,
+            "barAlignment": 0,
             "barWidthFactor": 0.6,
             "drawStyle": "line",
             "fillOpacity": 0,
@@ -331,7 +331,8 @@
                 "value": 0
               }
             ]
-          }
+          },
+          "unit": "opm"
         },
         "overrides": [
           {
@@ -380,25 +381,16 @@
             ]
           },
           {
-            "__systemRef": "hideSeriesFrom",
             "matcher": {
-              "id": "byNames",
-              "options": {
-                "mode": "exclude",
-                "names": [
-                  "Error rate"
-                ],
-                "prefix": "All except:",
-                "readOnly": true
-              }
+              "id": "byName",
+              "options": "Error rate"
             },
             "properties": [
               {
-                "id": "custom.hideFrom",
+                "id": "color",
                 "value": {
-                  "legend": false,
-                  "tooltip": true,
-                  "viz": true
+                  "fixedColor": "dark-red",
+                  "mode": "fixed"
                 }
               }
             ]
@@ -406,7 +398,22 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "Error rate"
+              "options": "Error / hour"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "dark-red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Errors/min"
             },
             "properties": [
               {
@@ -444,14 +451,14 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum without (job, instance, replica, component, reason) (rate(blockscan_app_errors_total{service=\"blockscan\"}[30m]))",
+          "expr": "sum without (job, instance, replica, component, reason) (increase(blockscan_app_errors_total{service=\"blockscan\"}[1m]))",
           "interval": "",
-          "legendFormat": "Error rate",
+          "legendFormat": "Errors/min",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Errors Rate (30m)",
+      "title": "Errors per minute",
       "type": "timeseries"
     },
     {
