@@ -2,23 +2,28 @@
 
 ## Description
 
-A **production-grade** microservice that ingests new Ethereum **blocks** in real time and publishes them to Kafka as canonical block events. 
-It is built for horizontal **scalability** and fault tolerance, using efficient WebSocket polling or subscription clients, partition-aware load balancing, 
-and stateless replicas behind a lightweight coordinator. 
+**Blockscan** is a production‑ready microservice that ingests Ethereum blocks and reliably
+publishes them to Kafka. It supports both **low‑latency** streaming of **new head**s and
+reorg‑safe ingestion of **finalized** blocks, enabling diverse downstream use cases. For now
+it uses an Alchemy WebSocket endpoint to read new blocks (configurable). 
 
-It is engineered for **reliability** through effectively-once publishing via transactional Kafka producers, deterministic keys, and durable Redis markers. Downstream consumers can idempotently apply updates using the block hash key and the source message id header. 
-Temporary outages are handled with durable buffering and retry policies with exponential backoff, so events are never dropped and order is preserved within a partition.
+The service is **reliable** by design, it provides **effectively‑once** delivery with idempotent
+publishing and deterministic per‑key ordering, tolerates node/broker outages with
+bounded **retries** and **graceful recovery**, and **preserves** progress across **restarts**. 
 
-The service is **reorg-aware**, emitting update or tombstone events for replaced blocks to keep downstream consumers consistent. Comprehensive observability is included with 
-structured logs, metrics, and traces to monitor lag, throughput, error rates, and reorg frequency.
+It offers a simple fail‑over mechanism based on two replicas, and provides observability metrics,
+logs, and health endpoints for operational clarity. Designed to be simple to integrate
+and safe to operate, Blockscan service is a robust foundation for real‑time pipelines,
+analytics, and indexing workloads.
 
 ## Architecture
 
-Replicas subscribe via WebSocket to an Ethereum node and publish new blocks to Kafka in real time.
-Redis handles coordination using dedup keys per block hash with a TTL also Redis outbox stores pending events 
-and is drained on restart for crash safety.
-
-**Delivery semantics** are effectively-once: Redis ensures one stream entry per block hash (within TTL), the publisher uses transactional producers and deterministic keys, and a durable "published" marker prevents re-processing on restart. A rare duplicate can occur in a narrow crash window; consumers can dedupe using the `source-message-id` header and/or rely on log compaction.
+Blockscan adopts Clean Architecture, a framework‑agnostic core (entities, ports, use cases),
+adapters implementing those ports (Ethereum scanner, Redis store/stream, Kafka publisher),
+and infrastructure that wires configuration, HTTP server, metrics, and lifecycle.
+At runtime, the Scanner ingests blocks (new heads or finalized) and maps them to domain models;
+a Redis outbox enforces dedup and durable handoff via Streams; a Stream Reader publishes to Kafka
+and acks on success. Components are loosely coupled for testability, scalability, and operability.
 
 ## Event Format
 
@@ -43,10 +48,8 @@ The local provisioner now creates the upstream topic with log compaction enabled
 - If your topic already exists, alter it manually:
   - `kafka-configs.sh --bootstrap-server <broker> --alter --topic <topic> --add-config cleanup.policy=compact`
 
-Reorgs are detected and the service emits update or tombstone events to keep downstream state correct.
+In non-finalized mode, reorgs may appear in the stream; finalized mode avoids them.
 
 ### Diagram
 
 <img src="docs/architecture.png" alt="Architecture – Ethereum Block → Kafka" width="900">
-
-
