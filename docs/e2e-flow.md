@@ -5,7 +5,7 @@ flowchart TD
   A["Ethereum Node (WS/HTTP)"] --> B["EthereumScanner<br/>reconnect/backoff<br/>per-call timeouts"]
   B --> C["BlockLogger (Redis)<br/>FCALL add_block<br/>SET NX dedup + XADD"]
 
-  C -- "new enqueued" --> D["Redis Stream: blocks"]
+  C -- "XADD success" --> D["Redis Stream: blocks"]
   C -- duplicate --> J["Skip enqueue"]
 
   D --> E["BlockStream Reader<br/>drain PEL<br/>reclaim stale (XAUTOCLAIM)<br/>read new"]
