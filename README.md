@@ -7,7 +7,7 @@ publishes them to Kafka. It supports both **low‑latency** streaming of **new h
 reorg‑safe ingestion of **finalized** blocks, enabling diverse downstream use cases. For now,
 it uses an Alchemy WebSocket endpoint to read new blocks (configurable).
 
-The service is **reliable** by design: it provides **effectively‑once** delivery with idempotent
+The service is **reliable** by design, it provides **effectively‑once** delivery with idempotent
 publishing and deterministic per‑key ordering, tolerates node/broker outages with
 bounded **retries** and **graceful recovery**, and **preserves** progress across **restarts**. 
 
@@ -37,10 +37,10 @@ analytics, and indexing workloads.
 ## Quick Start
 
 ### Prerequisites
+- Go 1.25
 - Docker Desktop (Compose v2) or Docker Engine + Compose plugin
 - Internet access (default Ethereum WS endpoint is public: `wss://ethereum.publicnode.com`)
 - Open local ports: 6379, 9092, 8080, 3000, 9090, 6380, 18081, 18082
-- Web browser to access Redis Commander, Kafka UI, Grafana, and Prometheus
 
 ### Configure Ethereum node (recommended)
 For consistent throughput and fewer rate limits, use an Alchemy WebSocket endpoint instead of the default public endpoint.
@@ -100,7 +100,7 @@ Stop and remove containers and data volumes:
 
 ## Architecture
 
-The Blockscan microservice adopts **Clean Architecture**: a framework‑agnostic core (entities, ports, use cases),
+The Blockscan microservice adopts **Clean Architecture**, a framework‑agnostic core (entities, ports, use cases),
 adapters that implement those ports — Ethereum scanner, Redis store/stream, and Kafka publisher —
 and infrastructure that wires configuration, an HTTP server, metrics, and lifecycle.
 At runtime, the scanner ingests blocks (new heads or finalized) and maps them to domain models;
@@ -153,23 +153,32 @@ flowchart TD
 
 ## Testing
 
-We emphasize reliability through integration tests with deterministic failure injection rather than only unit tests. The end‑to‑end pipeline’s 
-guarantees (dedup, atomic enqueue, idempotent publish, clean recovery) depend on cross‑component behavior best validated end‑to‑end.
+We prioritize reliability with integration tests that use deterministic failure injection, not just unit tests. The end‑to‑end pipeline
+guarantees—deduplication, atomic enqueue, idempotent publish, and clean recovery—depend on cross‑component behavior best validated end to end.
 
-- Real dependencies via Testcontainers: tests spin Redis, Kafka, and a local Ethereum dev node, then run the service in a container built with failpoints enabled (build/Dockerfile.test).
-- Failure injection: we use **PingCAP** Failpoint to simulate crashes at precise boundaries to prove no duplicates and that pending entries are reclaimed safely.
-- Tips: run `go test ./... -count=1` when iterating on stateful tests to avoid cached results.
+Tests run real dependencies via Testcontainers (Redis, Kafka, and a local Ethereum dev node) and execute the service in a failpoint‑enabled
+container (build/Dockerfile.test). We use PingCAP Failpoint to simulate crashes at precise boundaries, proving no duplicates and safe
+reclamation of pending entries.
+
+When iterating on stateful tests, run:
+```sh
+go test ./... -count=1
+```
 
 [Back to top](#contents)
 
 ## Monitoring & Observability
 
 We added logs, metrics, and a small set of **SLIs/SLOs** to give continuous, outcome‑oriented evidence that the pipeline is healthy. Rather
-than instrumenting every internal detail, we focus on signals users feel: how fast a block moves end‑to‑end, how reliably it gets published,
-and whether the service is keeping up without errors. End‑to‑end latency shows when the system slows or backpressure builds; the publish
+than instrumenting every internal detail, we focus on signals users feel, how fast a block moves end‑to‑end, how reliably it gets published,
+and whether the service is keeping up without errors. 
+
+End‑to‑end latency shows when the system slows or backpressure builds; the publish
 success rate reflects delivery reliability and catches issues that threaten effectively‑once guarantees; throughput and error rates show
 capacity, headroom, and stability over time. These baselines make alerts meaningful (e.g., burn‑rate alerts on success, thresholds on latency),
-help teams spot regressions early, and shorten time‑to‑root‑cause by correlating metrics with logs in **Grafana**. The same foundation can be
+help teams spot regressions early, and shorten time‑to‑root‑cause by correlating metrics with logs in **Grafana**. 
+
+The same foundation can be
 extended with tracing to follow individual requests across scanner → Redis → Kafka when deeper analysis is needed.
     
 **Blockscan Insights dashboard**:
