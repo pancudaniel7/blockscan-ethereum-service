@@ -1,4 +1,4 @@
-.PHONY: build test run integration-test unit-test docker-up docker-down docker-clean lint lint-install
+.PHONY: build test run integration-test unit-test docker-up docker-down docker-clean lint lint-install infra-ps logs-replica1
 
 # Config selection: prefer GO_ENV if provided, default to "local".
 CONFIG_NAME ?= $(GO_ENV)
@@ -53,3 +53,12 @@ infra-up:
 
 infra-blockscan-restart:
 	  docker compose --verbose -f $(COMPOSE_FILE) up -d --build --force-recreate blockscan-replica1 blockscan-replica2
+
+infra-ps:
+	docker compose -f $(COMPOSE_FILE) ps
+
+logs-replica1:
+	docker compose -f $(COMPOSE_FILE) logs -f blockscan-replica1
+
+logs-replica2	:
+	docker compose -f $(COMPOSE_FILE) logs -f blockscan-replica2
