@@ -4,8 +4,7 @@
 
 **Blockscan** is a production‑ready microservice that ingests Ethereum blocks and reliably
 publishes them to Kafka. It supports both **low‑latency** streaming of **new heads** and
-reorg‑safe ingestion of **finalized** blocks, enabling diverse downstream use cases. For now,
-it uses an Alchemy WebSocket endpoint to read new blocks (configurable).
+reorg‑safe ingestion of **finalized** blocks, enabling diverse downstream use cases.
 
 The service is **reliable** by design, it provides **effectively‑once** delivery with idempotent
 publishing and deterministic per‑key ordering, tolerates node/broker outages with
@@ -40,7 +39,7 @@ analytics, and indexing workloads.
 - Go 1.25
 - Docker Desktop (Compose v2) or Docker Engine + Compose plugin
 - Internet access (default Ethereum WS endpoint is public: `wss://ethereum.publicnode.com`)
-- Open local ports: 6379, 9092, 8080, 3000, 9090, 6380, 18081, 18082
+- Available ports: 6379, 9092, 8080, 3000, 9090, 6380, 18081, 18082
 
 ### Configure Ethereum node (recommended)
 For consistent throughput and fewer rate limits, use an Alchemy WebSocket endpoint instead of the default public endpoint.
@@ -50,15 +49,18 @@ Create an account and app: https://dashboard.alchemy.com (choose the network: Ma
 Copy the WebSocket URL (for example: `wss://eth-mainnet.g.alchemy.com/v2/<YOUR_API_KEY>`).
 
 Export it before starting the stack so Compose passes it to both replicas:
-  macOS/Linux:
+
+- macOS/Linux:
     ```sh
     export BSCAN_SCANNER_WEBSOCKET_URL=wss://eth-mainnet.g.alchemy.com/v2/<YOUR_API_KEY>
     ```
-  Windows (PowerShell):
+
+- Windows (PowerShell):
     ```sh
     $Env:BSCAN_SCANNER_WEBSOCKET_URL='wss://eth-mainnet.g.alchemy.com/v2/<YOUR_API_KEY>'
     ```
-  If the stack is already running, apply the change to app replicas:
+
+- If the stack is already running, apply the change to app replicas:
     ```sh
     make infra-blockscan-restart
     ```
@@ -78,12 +80,33 @@ Tail app logs:
   ```
 
 ### Access the services
-- App (replica1): `http://localhost:18081/health` and `http://localhost:18081/metrics`
-- App (replica2): `http://localhost:18082/health` and `http://localhost:18082/metrics`
-- Redis Commander: `http://localhost:6380` — browse keys (dedup markers) and the `blocks` stream; the `add_block` function is auto‑loaded by the provisioner.
-- Kafka UI: `http://localhost:8080` — open cluster “local” and inspect the `block-upstream-topic` to view published records (broker available at `localhost:9092` for client tools).
-- Grafana: `http://localhost:3000` (user `admin`, password `admin`) — explore logs (Loki) and create metric panels using `blockscan_`‑prefixed metrics (for example, `blockscan_pipeline_end_to_end_latency_ms`).
-- Prometheus: `http://localhost:9090` — query service metrics directly.
+- **App (replica1)**
+  - Health: [http://localhost:18081/health](http://localhost:18081/health)
+  - Metrics: [http://localhost:18081/metrics](http://localhost:18081/metrics)
+
+- **App (replica2)**
+  - Health: [http://localhost:18082/health](http://localhost:18082/health)
+  - Metrics: [http://localhost:18082/metrics](http://localhost:18082/metrics)
+
+- **Redis Commander**
+  - UI: [http://localhost:6380](http://localhost:6380)  
+  - Browse keys (dedup markers) and the `blocks` stream.  
+  - The `add_block` function is auto-loaded by the provisioner.
+
+- **Kafka UI**
+  - UI: [http://localhost:8080](http://localhost:8080)  
+  - Open cluster **local** and inspect the `block-upstream-topic`.  
+  - Broker for client tools: `localhost:9092`.
+
+- **Grafana**
+  - UI: [http://localhost:3000](http://localhost:3000)  
+  - Credentials: `admin` / `admin`.  
+  - Explore logs (Loki) and create metric panels using `blockscan_`-prefixed metrics  
+    (for example: `blockscan_pipeline_end_to_end_latency_ms`).
+
+- **Prometheus**
+  - UI: [http://localhost:9090](http://localhost:9090)  
+  - Query service metrics directly.
 
 ### Monitor the pipeline
 - Logs: in Grafana (Loki) filter by `service=blockscan` and `instance` to follow activity
@@ -100,9 +123,8 @@ Stop and remove containers and data volumes:
 
 ## Architecture
 
-The Blockscan microservice adopts **Clean Architecture**, a framework‑agnostic core (entities, ports, use cases),
-adapters that implement those ports — Ethereum scanner, Redis store/stream, and Kafka publisher —
-and infrastructure that wires configuration, an HTTP server, metrics, and lifecycle.
+Blockscan is built using **Clean Architecture**, with a framework-agnostic core made up of entities, use cases, and ports. External concerns are handled through adapters such as the Ethereum scanner, Redis store and streams, and the Kafka publisher, while the infrastructure layer ties everything together with configuration, the HTTP server, metrics, and application lifecycle management.
+
 At runtime, the scanner ingests blocks (new heads or finalized) and maps them to domain models;
 a Redis outbox enforces deduplication and durable handoff via streams; a stream reader publishes to Kafka
 and acknowledges messages on success. Components are loosely coupled for testability, scalability, and operability.
@@ -125,10 +147,10 @@ ingest latency low while preserving downstream durability.
 ### E2E Flow
 
 From Ethereum ingestion to Kafka publish:
-- Scanner fetches new heads/finalized blocks with backoff and timeouts.
-- BlockLogger invokes Redis `FCALL add_block` (Lua) to dedup (`SET NX`) and `XADD` to the stream **atomically**.
-- Stream reader drains/reclaims the consumer group **PEL**, checks the published marker, publishes to Kafka (retries/txn), then writes the marker and acknowledges.
-- Restarts and failovers resume from Redis, achieving **effectively‑once** without **double‑publishing**.
+1. Scanner fetches new heads/finalized blocks with backoff and timeouts.
+2. BlockLogger invokes Redis `FCALL add_block` (Lua) to dedup (`SET NX`) and `XADD` to the stream **atomically**.
+3. Stream reader drains/reclaims the consumer group **PEL**, checks the published marker, publishes to Kafka (retries/txn), then writes the marker and acknowledges.
+4. Restarts and failovers resume from Redis, achieving **effectively‑once** without **double‑publishing**.
 
 **E2E flow diagram**:
 

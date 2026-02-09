@@ -7,7 +7,7 @@ log:
   level: info
 
 pprof:
-  enabled: true
+  enabled: false
   addr: "0.0.0.0:6060"
   block_profile_rate: 0
   mutex_profile_fraction: 0
