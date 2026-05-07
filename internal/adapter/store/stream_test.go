@@ -10,6 +10,8 @@ import (
 
 	miniredis "github.com/alicebob/miniredis/v2"
 	"github.com/go-playground/validator/v10"
+	imetrics "github.com/pancudaniel7/blockscan-ethereum-service/internal/pkg/metrics"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -377,4 +379,49 @@ func TestIsNoGroupErr_Table(t *testing.T) {
 			require.Equal(t, c.want, isNoGroupErr(c.err))
 		})
 	}
+}
+
+func TestRedisStreamIDMillis_Table(t *testing.T) {
+	cases := []struct {
+		name string
+		id   string
+		want int64
+		ok   bool
+	}{
+		{name: "valid stream id", id: "123-0", want: 123, ok: true},
+		{name: "missing sequence", id: "123", ok: false},
+		{name: "empty timestamp", id: "-0", ok: false},
+		{name: "invalid timestamp", id: "abc-0", ok: false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, ok := redisStreamIDMillis(c.id)
+			require.Equal(t, c.ok, ok)
+			require.Equal(t, c.want, got)
+		})
+	}
+}
+
+func TestBlockStream_ObserveRedisStreamSaturation(t *testing.T) {
+	v := validator.New()
+	s, host, port := mini(t)
+	rc := redis.NewClient(&redis.Options{Addr: s.Addr()})
+	t.Cleanup(func() { _ = rc.Close() })
+	lg := &testLog{}
+	var wg sync.WaitGroup
+	cfg := validStreamCfg(host, port)
+	bs, err := NewBlockStream(lg, &wg, v, cfg)
+	require.NoError(t, err)
+	require.NoError(t, bs.ensureConsumerGroup(context.Background()))
+	_, err = rc.XAdd(context.Background(), &redis.XAddArgs{Stream: cfg.Streams.Key, Values: map[string]any{"k": "v"}}).Result()
+	require.NoError(t, err)
+	_, err = rc.XReadGroup(context.Background(), &redis.XReadGroupArgs{Group: cfg.Streams.ConsumerGroup, Consumer: cfg.Streams.ConsumerName, Streams: []string{cfg.Streams.Key, ">"}, Count: 1}).Result()
+	require.NoError(t, err)
+
+	bs.observeRedisStreamSaturation(context.Background())
+
+	redisMetrics := imetrics.Redis()
+	require.Equal(t, float64(1), testutil.ToFloat64(redisMetrics.StreamLength.WithLabelValues(cfg.Streams.Key)))
+	require.Equal(t, float64(1), testutil.ToFloat64(redisMetrics.StreamPendingMessages.WithLabelValues(cfg.Streams.Key, cfg.Streams.ConsumerGroup)))
+	require.GreaterOrEqual(t, testutil.ToFloat64(redisMetrics.StreamOldestPendingAgeMS.WithLabelValues(cfg.Streams.Key, cfg.Streams.ConsumerGroup)), float64(0))
 }

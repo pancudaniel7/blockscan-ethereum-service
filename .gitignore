@@ -51,3 +51,4 @@ __debug*
 .gomodcache/
 .gocache/
 build/_tmp_whitespace/
+.history/
