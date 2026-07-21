@@ -189,7 +189,7 @@ go test ./... -count=1
 
 [Back to top](#contents)
 
-## Monitoring & Observability
+## Monitoring
 
 We added logs, metrics, and a small set of **SLIs/SLOs** to give continuous, outcome‑oriented evidence that the pipeline is healthy. Rather
 than instrumenting every internal detail, we focus on signals users feel, how fast a block moves end‑to‑end, how reliably it gets published,
